@@ -11,59 +11,80 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- Firebase SDK (Versión Compat para estabilidad en archivo único) -->
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <!-- Firebase SDK Modular -->
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+        import { getFirestore, collection, doc, addDoc, onSnapshot, query, deleteDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+        // Globalizar para React
+        window.FB = { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, getFirestore, collection, doc, addDoc, onSnapshot, query, deleteDoc, updateDoc, serverTimestamp };
+    </script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; color: #1e293b; overflow-x: hidden; text-align: left; }
         
-        .invoice-paper { 
-            background: white; 
-            box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.15); 
-            border: 1px solid #e2e8f0; 
-            max-width: 800px; 
-            margin: auto; 
-            border-radius: 8px;
-        }
-        
-        .invoice-table th, .invoice-table td { 
-            border: 1px solid #e2e8f0; 
-            padding: 12px; 
-            font-size: 0.75rem; 
-        }
-        
-        .invoice-table th { 
-            background-color: #f1f5f9; 
-            font-weight: 800; 
-            text-transform: uppercase; 
-            color: #475569;
+        :root {
+            --whatsapp-teal: #128C7E;
+            --whatsapp-green: #25D366;
+            --whatsapp-dark: #075E54;
         }
 
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background-color: #f0f2f5; 
+            color: #1e293b; 
+            overflow-x: hidden; 
+            text-align: left; 
+        }
+        
         input[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
         
-        .sidebar-active {
-            background-color: #ea580c;
-            color: white;
-            box-shadow: 0 15px 25px -5px rgba(234, 88, 12, 0.4);
+        .nav-active {
+            color: var(--whatsapp-teal);
+            position: relative;
+        }
+        
+        .nav-active::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 20%;
+            right: 20%;
+            height: 3px;
+            background-color: var(--whatsapp-teal);
+            border-radius: 10px;
         }
 
-        .fade-in { animation: fadeIn 0.4s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .sidebar-active {
+            background-color: var(--whatsapp-teal);
+            color: white;
+            box-shadow: 0 10px 15px -3px rgba(18, 140, 126, 0.3);
+        }
+
+        .fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
         
-        .hide-scrollbar::-webkit-scrollbar { width: 0; background: transparent; }
+        /* Eliminamos hide-scrollbar para que el usuario sepa que puede bajar */
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+
+        .card-shadow {
+            box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+        }
+
+        .badge-pendiente { @apply bg-red-100 text-red-600 border-red-200; }
+        .badge-abonado { @apply bg-blue-100 text-blue-600 border-blue-200; }
+        .badge-cancelado { @apply bg-green-100 text-green-700 border-green-200; }
     </style>
 </head>
 <body>
     <div id="root"></div>
 
     <script type="text/babel">
-        const { useState, useEffect, useMemo } = React;
+        const { useState, useEffect, useMemo, useRef } = React;
 
-        // --- 1. CONFIGURACIÓN DEL NEGOCIO ---
-        const today = new Date().toISOString().split('T')[0];
         const PRODUCTOS = [
             { id: 'p1', nombre: '01 EMPACADO AVENA POLACA 165G', costo: 0.269565, pvd: 0.3478 },
             { id: 'p2', nombre: '02 EMPACADO AVENA POLACA 340G', costo: 0.608694, pvd: 0.6956 },
@@ -71,52 +92,18 @@
             { id: 'p4', nombre: '04 EMPACADO AVENA POLACA 1000G', costo: 1.597390, pvd: 1.8260 },
         ];
 
-        const GASTOS_FIJOS_LISTA = [
-            { det: "Sueldos empleados", val: 964.00 },
-            { det: "Combustible", val: 350.00 },
-            { det: "Comisiones", val: 600.00 },
-            { det: "Viáticos locales", val: 60.00 },
-            { det: "Viáticos foráneos", val: 180.00 },
-            { det: "Depreciación vehículos", val: 200.00 },
-            { det: "Intereses préstamo", val: 172.73 },
-            { det: "Pago de capital vehículos", val: 683.06 },
-            { det: "Mantenimiento y reparaciones", val: 100.00 },
-            { det: "Telefonía celular", val: 30.00 },
-            { det: "Honorarios prof. (Contador)", val: 200.00 },
-            { det: "Suministros y materiales", val: 10.00 },
-            { det: "Gastos Varios", val: 30.00 }
-        ];
-
         const TOTAL_FIJO = 3579.80;
         const VENDEDORES = ["Diego Xavier Siavichay", "Byron Armando Miranda Capa"];
 
-        // --- 2. CONFIGURACIÓN DE FIREBASE ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyBu0b-O86orBd_fQut3i9n5s0W9fLpkRFI",
-            authDomain: "austrodistribuidoraecuatoriana.firebaseapp.com",
-            projectId: "austrodistribuidoraecuatoriana",
-            storageBucket: "austrodistribuidoraecuatoriana.firebasestorage.app",
-            messagingSenderId: "711061794814",
-            appId: "1:711061794814:web:65b028a387ecf277ca5aaf"
-        };
-
-        // Inicializar Firebase
-        if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-        const db = firebase.firestore();
-        const auth = firebase.auth();
-        const pathId = 'austro-v27'; 
-
-        // --- 3. COMPONENTES UI ---
-        const Icon = ({ name, size = 20 }) => {
+        const Icon = ({ name, size = 20, className = "" }) => {
             useEffect(() => { if (window.lucide) window.lucide.createIcons(); }, [name]);
-            return <i data-lucide={name} style={{ width: size, height: size }}></i>;
+            return <i data-lucide={name} className={className} style={{ width: size, height: size }}></i>;
         };
 
         const Card = ({ children, className = "" }) => (
-            <div className={`bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm ${className}`}>{children}</div>
+            <div className={`bg-white p-5 rounded-2xl border border-slate-100 card-shadow ${className}`}>{children}</div>
         );
 
-        // --- 4. APLICACIÓN PRINCIPAL ---
         function App() {
             const [user, setUser] = useState(null);
             const [activeTab, setActiveTab] = useState('dashboard');
@@ -124,179 +111,246 @@
             const [facturas, setFacturas] = useState([]);
             const [cargas, setCargas] = useState([]);
             const [error, setError] = useState(null);
+            const [isSaving, setIsSaving] = useState(false);
 
             const [modalF, setModalF] = useState(false);
             const [modalC, setModalC] = useState(false);
-            const [formF, setFormF] = useState({ num: '', items: PRODUCTOS.map(p => ({...p, q: 0})) });
-            const [formC, setFormC] = useState({ ven: '', items: PRODUCTOS.map(p => ({...p, q: 0})) });
+            const [modalPago, setModalPago] = useState(null);
+            const [modalComprobante, setModalComprobante] = useState(null);
 
-            const subtotalF = useMemo(() => formF.items.reduce((a, b) => a + (b.q * b.costo), 0), [formF.items]);
-            const totalF = subtotalF * 1.15;
-            
+            const input2 = useRef(null);
+            const input3 = useRef(null);
+
+            const today = new Date().toISOString().split('T')[0];
+
+            const [formF, setFormF] = useState({ 
+                n1: '', n2: '', n3: '',
+                items: PRODUCTOS.map(p => ({...p, q: 0}))
+            });
+            const [formC, setFormC] = useState({ ven: '', items: PRODUCTOS.map(p => ({...p, q: 0})) });
+            const [formPago, setFormPago] = useState({ monto: 0, fecha: today, foto: null });
+
+            useEffect(() => {
+                const initFirebase = async () => {
+                    try {
+                        const firebaseConfig = JSON.parse(__firebase_config);
+                        const app = FB.initializeApp(firebaseConfig);
+                        const auth = FB.getAuth(app);
+                        const db = FB.getFirestore(app);
+                        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await FB.signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await FB.signInAnonymously(auth);
+                        }
+
+                        FB.onAuthStateChanged(auth, (u) => {
+                            setUser(u);
+                            setLoading(false);
+                        });
+
+                        const facturasRef = FB.collection(db, 'artifacts', appId, 'public', 'data', 'facturas');
+                        const despachosRef = FB.collection(db, 'artifacts', appId, 'public', 'data', 'despachos');
+
+                        FB.onSnapshot(facturasRef, (s) => setFacturas(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+                        FB.onSnapshot(despachosRef, (s) => setCargas(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+
+                        window.appDb = db;
+                        window.appId = appId;
+                    } catch (e) {
+                        setError("Fallo de conexión.");
+                        setLoading(false);
+                    }
+                };
+                initFirebase();
+            }, []);
+
             const utilidadReal = useMemo(() => {
                 return cargas.reduce((acc, c) => acc + (c.items || []).reduce((s, i) => s + (i.q * (i.pvd - i.costo)), 0), 0);
             }, [cargas]);
 
-            // Gestión de Sesión
-            useEffect(() => {
-                const unsubscribe = auth.onAuthStateChanged(async (u) => {
-                    if (!u) {
-                        try {
-                            await auth.signInAnonymously();
-                        } catch(e) {
-                            console.error("Auth Error:", e);
-                            setError("Error conectando con la nube.");
-                        }
-                    }
-                    setUser(u);
-                    setLoading(false);
-                });
-                return () => unsubscribe();
-            }, []);
-
-            // Sincronización Firestore
-            useEffect(() => {
-                if (!user) return;
-                const baseRef = db.collection('artifacts').doc(pathId).collection('public').doc('data');
-                
-                const unsubF = baseRef.collection('facturas').onSnapshot(
-                    s => setFacturas(s.docs.map(d => ({id: d.id, ...d.data()}))),
-                    e => setError("Permiso Firestore Denegado. Revisa las 'Reglas'.")
-                );
-                
-                const unsubC = baseRef.collection('despachos').onSnapshot(
-                    s => setCargas(s.docs.map(d => ({id: d.id, ...d.data()}))),
-                    e => console.error(e)
-                );
-
-                return () => { unsubF(); unsubC(); };
-            }, [user]);
+            const handlePhotoChange = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const reader = new FileReader();
+                    reader.onloadend = () => setFormPago(prev => ({ ...prev, foto: reader.result }));
+                    reader.readAsDataURL(file);
+                }
+            };
 
             const guardarFactura = async () => {
-                if (!formF.num) { setError("Nº de factura requerido."); return; }
+                if (!user || isSaving) return;
+                if (!formF.n1 || !formF.n2 || !formF.n3) { setError("Número de factura incompleto."); return; }
+                const subtotal = formF.items.reduce((a, b) => a + (b.q * b.costo), 0);
+                if (subtotal <= 0) { setError("Ingrese cantidades."); return; }
+
+                setIsSaving(true);
+                const fullNum = `${formF.n1}-${formF.n2}-${formF.n3}`;
+
                 try {
-                    await db.collection('artifacts').doc(pathId).collection('public').doc('data').collection('facturas').add({
-                        numFactura: formF.num,
+                    const facturasRef = FB.collection(window.appDb, 'artifacts', window.appId, 'public', 'data', 'facturas');
+                    await FB.addDoc(facturasRef, {
+                        numFactura: fullNum,
                         fecha: today,
                         items: formF.items,
-                        total: totalF,
+                        total: subtotal * 1.15,
+                        montoPagado: 0,
+                        estadoPago: 'pendiente',
                         utilidad: formF.items.reduce((a, b) => a + (b.q * (b.pvd - b.costo)), 0),
-                        createdAt: new Date().toISOString()
+                        createdAt: new Date().toISOString(),
+                        timestamp: FB.serverTimestamp()
                     });
                     setModalF(false);
-                    setFormF({ num: '', items: PRODUCTOS.map(p => ({...p, q: 0})) });
-                    setError(null);
-                } catch(e) { setError("Error al grabar factura."); }
+                    setFormF({ n1: '', n2: '', n3: '', items: PRODUCTOS.map(p => ({...p, q: 0})) });
+                } catch(e) { setError("Error al guardar registro."); }
+                finally { setIsSaving(false); }
+            };
+
+            const registrarPago = async () => {
+                if (!modalPago || isSaving) return;
+                setIsSaving(true);
+                try {
+                    const docRef = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'facturas', modalPago.id);
+                    const nuevoMonto = parseFloat(formPago.monto) || 0;
+                    let estado = 'pendiente';
+                    if (nuevoMonto >= modalPago.total - 0.01) estado = 'cancelado';
+                    else if (nuevoMonto > 0) estado = 'abonado';
+
+                    await FB.updateDoc(docRef, {
+                        montoPagado: nuevoMonto,
+                        estadoPago: estado,
+                        fechaPago: formPago.fecha,
+                        comprobante: formPago.foto
+                    });
+                    setModalPago(null);
+                    setFormPago({ monto: 0, fecha: today, foto: null });
+                } catch (e) { setError("No se pudo actualizar el pago."); }
+                finally { setIsSaving(false); }
             };
 
             const guardarCarga = async () => {
+                if (!user || isSaving) return;
                 const totalCargado = formC.items.reduce((a,b) => a + (b.q * b.pvd), 0);
-                if (totalCargado <= 0 || !formC.ven) return;
+                if (totalCargado <= 0 || !formC.ven) { setError("Faltan datos de ruta."); return; }
+                setIsSaving(true);
                 try {
-                    await db.collection('artifacts').doc(pathId).collection('public').doc('data').collection('despachos').add({
+                    const despachosRef = FB.collection(window.appDb, 'artifacts', window.appId, 'public', 'data', 'despachos');
+                    await FB.addDoc(despachosRef, {
                         responsable: formC.ven,
                         fecha: today,
-                        totalCargado: totalCargado,
+                        totalCargado,
                         items: formC.items,
-                        createdAt: new Date().toISOString()
+                        createdAt: new Date().toISOString(),
+                        timestamp: FB.serverTimestamp()
                     });
                     setModalC(false);
                     setFormC({ ven: '', items: PRODUCTOS.map(p => ({...p, q: 0})) });
-                } catch (e) { console.error(e); }
+                } catch (e) { setError("Error al despachar."); }
+                finally { setIsSaving(false); }
             };
 
-            if (loading) return (
-                <div className="h-screen flex flex-col items-center justify-center bg-white space-y-4">
-                    <div className="w-12 h-12 border-4 border-orange-600 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="font-black text-orange-600 uppercase tracking-widest text-[10px]">Austro Pro • Conectando con la Nube</p>
-                </div>
-            );
+            const eliminarRegistro = async (col, id) => {
+                if (!confirm("¿Eliminar este registro?")) return;
+                try {
+                    const docRef = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', col, id);
+                    await FB.deleteDoc(docRef);
+                } catch (e) { setError("Error al eliminar."); }
+            };
+
+            const navItems = [
+                { id: 'dashboard', icon: 'line-chart', label: 'Inicio' },
+                { id: 'facturacion', icon: 'archive', label: 'Bodega' },
+                { id: 'logistica', icon: 'truck', label: 'Rutas' },
+                { id: 'inventario', icon: 'package', label: 'Stock' }
+            ];
 
             return (
-                <div className="min-h-screen md:pl-72 flex text-left">
-                    <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-72 bg-white border-r border-slate-100 flex-col p-8 z-30">
-                        <div className="flex items-center gap-4 mb-12">
-                            <div className="bg-orange-600 p-2.5 rounded-2xl text-white shadow-xl rotate-3"><Icon name="package" size={24}/></div>
-                            <span className="font-black text-2xl tracking-tighter text-orange-600 uppercase italic">AustroPro</span>
+                <div className="min-h-screen md:pl-72 flex flex-col">
+                    <header className="bg-[#075E54] text-white p-4 sticky top-0 z-40 shadow-md flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-white/20 p-2 rounded-lg"><Icon name="package" size={20}/></div>
+                            <h1 className="font-bold text-lg tracking-tight italic">AustroPro</h1>
                         </div>
+                        <div className={`w-2.5 h-2.5 rounded-full ${user ? 'bg-[#25D366] shadow-[0_0_8px_#25D366]' : 'bg-red-500 animate-pulse'}`}></div>
+                    </header>
 
-                        <div className={`mb-10 p-4 rounded-3xl flex items-center gap-3 border ${user ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                            <div className={`w-3 h-3 rounded-full ${user ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.4)]' : 'bg-red-50 animate-pulse'}`}></div>
-                            <span className="text-[10px] font-black uppercase text-slate-500 tracking-widest">{user ? 'Nube Sincronizada' : 'Sin Acceso'}</span>
+                    <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-72 bg-white border-r border-slate-200 flex-col p-6 z-30">
+                        <div className="mb-10 mt-4 px-2">
+                             <h2 className="text-[#128C7E] font-extrabold text-2xl italic tracking-tighter">AUSTRO PRO</h2>
+                             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1 italic">SISTEMA INTEGRAL</p>
                         </div>
-
                         <nav className="space-y-2 flex-1">
-                            {[
-                                { id: 'dashboard', icon: 'line-chart', label: 'Gerencia' },
-                                { id: 'facturacion', icon: 'scan', label: 'Facturas' },
-                                { id: 'logistica', icon: 'truck', label: 'Logística' },
-                                { id: 'inventario', icon: 'archive', label: 'Inventario' }
-                            ].map(item => (
-                                <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-4 p-5 rounded-[1.5rem] transition-all font-black uppercase text-[11px] tracking-widest italic ${activeTab === item.id ? 'sidebar-active' : 'text-slate-400 hover:bg-slate-50'}`}>
+                            {navItems.map(item => (
+                                <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-4 p-4 rounded-xl transition-all font-bold text-sm ${activeTab === item.id ? 'sidebar-active' : 'text-slate-500 hover:bg-slate-50'}`}>
                                     <Icon name={item.icon} size={20}/>
                                     <span>{item.label}</span>
                                 </button>
                             ))}
                         </nav>
-                        <div className="mt-auto p-4 bg-slate-900 rounded-[2rem] text-white text-center shadow-xl">
-                            <p className="text-[8px] font-black uppercase opacity-40 mb-1 italic text-center">Ruta:</p>
-                            <p className="text-[10px] font-bold text-orange-400 truncate text-center">{pathId}</p>
-                        </div>
                     </aside>
 
-                    <main className="p-4 md:p-12 max-w-7xl mx-auto w-full pb-32">
-                        {error && <div className="mb-8 p-6 bg-red-50 text-red-700 border-2 border-red-200 rounded-[2rem] font-black text-xs uppercase italic animate-bounce shadow-lg">{error}</div>}
+                    <main className="flex-1 p-4 md:p-10 pb-24 max-w-5xl mx-auto w-full">
+                        {error && <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-[10px] font-bold border border-red-100 uppercase italic flex justify-between"><span>{error}</span><button onClick={()=>setError(null)}><Icon name="x" size={12}/></button></div>}
 
                         {activeTab === 'dashboard' && (
-                            <div className="space-y-10 fade-in text-left">
-                                <div className="border-b-4 border-slate-900 pb-6 mb-10">
-                                    <h2 className="text-4xl font-black uppercase italic tracking-tighter text-slate-800 leading-none text-left">Gerencia</h2>
-                                </div>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-white font-black italic">
-                                    <Card className="bg-slate-900 border-none p-10"><p className="text-[11px] uppercase opacity-40 mb-6 tracking-widest leading-none">Gastos Fijos</p><p className="text-5xl tracking-tighter">${TOTAL_FIJO.toLocaleString()}</p></Card>
-                                    <Card className="bg-orange-600 border-none p-10"><p className="text-[11px] uppercase opacity-60 mb-6 tracking-widest leading-none">Utilidad Ruta</p><p className="text-5xl tracking-tighter">${utilidadReal.toLocaleString()}</p></Card>
-                                    <Card className={`${utilidadReal >= TOTAL_FIJO ? 'bg-green-600' : 'bg-red-600'} border-none p-10`}>
-                                        <p className="text-[11px] uppercase opacity-60 mb-6 tracking-widest leading-none">Neto Austro</p>
-                                        <p className="text-5xl tracking-tighter">${(utilidadReal - TOTAL_FIJO).toLocaleString()}</p>
+                            <div className="space-y-6 fade-in">
+                                <h2 className="text-xl font-bold text-slate-800 border-l-4 border-[#128C7E] pl-3 italic">Panel Gerencial</h2>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <Card className="border-b-4 border-slate-300">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Egresos Operativos</p>
+                                        <p className="text-2xl font-black text-slate-800">${TOTAL_FIJO.toLocaleString()}</p>
+                                    </Card>
+                                    <Card className="border-b-4 border-[#128C7E]">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Margen Ruta</p>
+                                        <p className="text-2xl font-black text-[#128C7E]">${utilidadReal.toLocaleString()}</p>
+                                    </Card>
+                                    <Card className={`border-b-4 ${utilidadReal >= TOTAL_FIJO ? 'border-[#25D366]' : 'border-red-500'}`}>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Utilidad Neta</p>
+                                        <p className={`text-2xl font-black ${utilidadReal >= TOTAL_FIJO ? 'text-[#075E54]' : 'text-red-500'}`}>${(utilidadReal - TOTAL_FIJO).toLocaleString()}</p>
                                     </Card>
                                 </div>
-                                <Card className="p-12 border-none shadow-2xl bg-white text-left">
-                                    <h3 className="font-black text-2xl uppercase tracking-tighter mb-10 border-b-2 border-slate-900 pb-2 italic">Gastos Operativos</h3>
-                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
-                                        <div className="space-y-3">
-                                            {GASTOS_FIJOS_LISTA.slice(0, 7).map((g,i) => (
-                                                <div key={i} className="flex justify-between text-[12px] font-bold italic border-b border-slate-50 pb-2 uppercase"><span>{g.det}</span><span>${g.val.toFixed(2)}</span></div>
-                                            ))}
-                                        </div>
-                                        <div className="space-y-3">
-                                            {GASTOS_FIJOS_LISTA.slice(7).map((g,i) => (
-                                                <div key={i} className="flex justify-between text-[12px] font-bold italic border-b border-slate-50 pb-2 uppercase"><span>{g.det}</span><span>${g.val.toFixed(2)}</span></div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                </Card>
                             </div>
                         )}
 
                         {activeTab === 'facturacion' && (
-                            <div className="space-y-6 fade-in text-left">
-                                <div className="flex justify-between items-center mb-10">
-                                    <h2 className="text-3xl font-black uppercase italic tracking-tighter leading-none">Facturación</h2>
-                                    <button onClick={() => setModalF(true)} className="bg-orange-600 text-white px-10 py-5 rounded-[2rem] shadow-2xl font-black uppercase text-xs hover:scale-105 transition-all">Nueva Factura</button>
+                            <div className="space-y-4 fade-in">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h2 className="text-xl font-bold text-slate-800 border-l-4 border-[#128C7E] pl-3 italic">Ingresos de Bodega</h2>
+                                    <button onClick={() => setModalF(true)} className="bg-[#128C7E] text-white p-4 rounded-full shadow-lg active:scale-90 transition-all">
+                                        <Icon name="plus" size={24}/>
+                                    </button>
                                 </div>
-                                <div className="grid grid-cols-1 gap-4 text-left">
+                                <div className="space-y-3">
                                     {facturas.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).map(f => (
-                                        <Card key={f.id} className="flex justify-between items-center border-l-8 border-orange-500 py-6">
-                                            <div className="text-left flex-1 text-left">
-                                                <h4 className="font-black text-slate-800 uppercase italic leading-none mb-1">Factura #{f.numFactura}</h4>
-                                                <span className="text-[10px] text-slate-400 font-bold uppercase italic">{f.fecha}</span>
-                                            </div>
-                                            <div className="flex items-center gap-6">
-                                                <div className="text-right font-black">
-                                                    <p className="text-[8px] uppercase opacity-40 italic leading-none mb-1">Monto Final</p>
-                                                    <p className="text-2xl tracking-tighter text-slate-800">${f.total?.toFixed(2)}</p>
+                                        <Card key={f.id} className="p-4 border-l-4 border-slate-200">
+                                            <div className="flex justify-between items-start mb-3">
+                                                <div>
+                                                    <h4 className="font-black text-slate-700 uppercase italic text-sm">Factura {f.numFactura}</h4>
+                                                    <p className="text-[9px] text-slate-400 font-bold uppercase italic">{f.fecha}</p>
                                                 </div>
-                                                <button onClick={() => db.collection('artifacts').doc(pathId).collection('public').doc('data').collection('facturas').doc(f.id).delete()} className="p-4 text-slate-200 hover:text-red-500 transition-colors"><Icon name="trash-2" size={24}/></button>
+                                                <button onClick={() => eliminarRegistro('facturas', f.id)} className="text-slate-200 hover:text-red-500"><Icon name="trash-2" size={16}/></button>
+                                            </div>
+                                            <div className="flex flex-wrap gap-2 mt-4">
+                                                <div className="bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 min-w-[100px]">
+                                                    <p className="text-[7px] font-bold text-slate-400 uppercase italic">Total</p>
+                                                    <p className="text-xs font-black text-slate-600">${f.total?.toFixed(2)}</p>
+                                                </div>
+                                                <div className="bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 min-w-[100px]">
+                                                    <p className="text-[7px] font-bold text-slate-400 uppercase italic">Pagado</p>
+                                                    <p className="text-xs font-black text-[#128C7E]">${f.montoPagado?.toFixed(2) || '0.00'}</p>
+                                                </div>
+                                                <div className="bg-orange-50 px-3 py-2 rounded-lg border border-orange-100 min-w-[100px]">
+                                                    <p className="text-[7px] font-bold text-orange-400 uppercase italic">Saldo</p>
+                                                    <p className="text-xs font-black text-orange-600">${(f.total - (f.montoPagado || 0)).toFixed(2)}</p>
+                                                </div>
+                                            </div>
+                                            <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-50">
+                                                <span className={`text-[8px] font-black uppercase px-2 py-1 rounded border italic tracking-widest ${f.estadoPago === 'cancelado' ? 'badge-cancelado' : f.estadoPago === 'abonado' ? 'badge-abonado' : 'badge-pendiente'}`}>{f.estadoPago || 'pendiente'}</span>
+                                                <div className="flex gap-2">
+                                                    {f.comprobante && <button onClick={() => setModalComprobante(f.comprobante)} className="p-2 bg-[#25D366]/10 text-[#075E54] rounded-lg"><Icon name="image" size={16}/></button>}
+                                                    <button onClick={() => { setModalPago(f); setFormPago({ monto: f.montoPagado || 0, fecha: f.fechaPago || today, foto: f.comprobante || null }); }} className="bg-[#128C7E] text-white px-3 py-1.5 rounded-lg font-black text-[9px] uppercase italic tracking-widest">Cobro / Pago</button>
+                                                </div>
                                             </div>
                                         </Card>
                                     ))}
@@ -305,21 +359,21 @@
                         )}
 
                         {activeTab === 'logistica' && (
-                            <div className="space-y-6 fade-in text-left">
-                                <div className="flex justify-between items-center mb-10 text-left">
-                                    <h2 className="text-3xl font-black uppercase italic tracking-tighter leading-none text-left">Logística</h2>
-                                    <button onClick={() => setModalC(true)} className="bg-orange-600 text-white px-10 py-5 rounded-[2rem] shadow-2xl font-black uppercase text-xs">Cargar Ruta</button>
+                            <div className="space-y-4 fade-in">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h2 className="text-xl font-bold text-slate-800 border-l-4 border-[#128C7E] pl-3 italic">Despachos a Ruta</h2>
+                                    <button onClick={() => setModalC(true)} className="bg-[#128C7E] text-white p-4 rounded-full shadow-lg active:scale-90 transition-all"><Icon name="truck" size={24}/></button>
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    {cargas.map(c => (
-                                        <Card key={c.id} className="border-l-8 border-orange-400 flex justify-between items-center text-left">
-                                            <div className="text-left">
-                                                <h4 className="font-black text-slate-800 uppercase text-lg italic">{c.responsable}</h4>
-                                                <span className="text-[9px] font-black text-slate-400 uppercase italic tracking-widest">{c.fecha}</span>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                    {cargas.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).map(c => (
+                                        <Card key={c.id} className="border-l-4 border-[#25D366]">
+                                            <div className="flex justify-between items-start mb-4">
+                                                <h4 className="font-black text-slate-800 text-[10px] uppercase italic">{c.responsable}</h4>
+                                                <button onClick={() => eliminarRegistro('despachos', c.id)} className="text-slate-200 hover:text-red-400"><Icon name="x-circle" size={16}/></button>
                                             </div>
-                                            <div className="text-right font-black text-left">
-                                                <p className="text-[8px] uppercase opacity-40 italic tracking-widest">Cargado</p>
-                                                <p className="text-3xl tracking-tighter text-slate-800">${c.totalCargado?.toLocaleString()}</p>
+                                            <div className="flex justify-between items-end bg-slate-50 p-4 rounded-xl border border-slate-100">
+                                                <p className="text-[8px] text-slate-400 font-black uppercase italic">Carga Total</p>
+                                                <p className="text-xl font-black text-[#075E54]">${c.totalCargado?.toLocaleString()}</p>
                                             </div>
                                         </Card>
                                     ))}
@@ -328,18 +382,21 @@
                         )}
 
                         {activeTab === 'inventario' && (
-                            <div className="space-y-6 fade-in text-left">
-                                <h2 className="text-3xl font-black uppercase italic tracking-tighter mb-10 text-left leading-none">Inventario Bodega</h2>
-                                <div className="grid grid-cols-1 md:grid-cols-4 gap-6 text-left">
+                            <div className="space-y-6 fade-in">
+                                <h2 className="text-xl font-bold text-slate-800 border-l-4 border-[#128C7E] pl-3 italic">Bodega Central</h2>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                     {PRODUCTOS.map(p => {
-                                        const ing = facturas.reduce((acc, f) => acc + (f.items?.find(it => it.id === p.id)?.q || 0), 0);
-                                        const sal = cargas.reduce((acc, c) => acc + (c.items?.find(it => it.pId === p.id)?.q || 0), 0);
-                                        const stock = ing - sal;
+                                        const entradas = facturas.reduce((acc, f) => acc + (f.items?.find(it => it.id === p.id)?.q || 0), 0);
+                                        const salidas = cargas.reduce((acc, c) => acc + (c.items?.find(it => it.id === p.id)?.q || 0), 0);
+                                        const stock = entradas - salidas;
                                         return (
-                                            <Card key={p.id} className="relative overflow-hidden text-left border-t-8 border-orange-500">
-                                                <p className="text-[10px] font-black text-slate-400 uppercase mb-4 leading-tight italic tracking-widest">{p.nombre}</p>
-                                                <p className={`text-6xl font-black tracking-tighter text-center ${stock < 50 ? 'text-red-500' : 'text-slate-800'}`}>{stock}</p>
-                                                <p className="text-[9px] font-bold text-slate-400 mt-6 text-center uppercase tracking-widest italic leading-none">Existencias</p>
+                                            <Card key={p.id} className="text-center p-4">
+                                                <p className="text-[8px] font-black text-slate-400 uppercase h-6 mb-4 leading-none">{p.nombre}</p>
+                                                <p className={`text-4xl font-black ${stock < 20 ? 'text-red-500' : 'text-[#128C7E]'}`}>{stock}</p>
+                                                <div className="flex justify-around mt-4 pt-3 border-t border-slate-50">
+                                                    <div><p className="text-[6px] font-bold text-slate-300 italic">ENT</p><p className="text-[9px] font-bold text-slate-400">+{entradas}</p></div>
+                                                    <div><p className="text-[6px] font-bold text-slate-300 italic">SAL</p><p className="text-[9px] font-bold text-slate-400">-{salidas}</p></div>
+                                                </div>
                                             </Card>
                                         );
                                     })}
@@ -348,82 +405,136 @@
                         )}
                     </main>
 
-                    {/* MODALES */}
+                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 flex justify-around items-center p-2 z-50 shadow-2xl">
+                        {navItems.map(item => (
+                            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 p-2 ${activeTab === item.id ? 'nav-active' : 'text-slate-300'}`}>
+                                <Icon name={item.icon} size={22}/><span className="text-[7px] font-black uppercase italic tracking-tighter">{item.label}</span>
+                            </button>
+                        ))}
+                    </nav>
+
+                    {/* MODAL NUEVA FACTURA - CORRECCIÓN DE SCROLL */}
                     {modalF && (
-                        <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4 backdrop-blur-md text-left">
-                            <div className="bg-white w-full max-w-5xl h-[95vh] rounded-[3.5rem] flex flex-col overflow-hidden relative shadow-2xl">
-                                <button onClick={() => setModalF(false)} className="absolute top-8 right-8 z-10 p-3 bg-slate-100 rounded-full hover:bg-red-50 hover:text-red-500 shadow-sm transition-all"><Icon name="x"/></button>
-                                <div className="flex-1 overflow-y-auto p-12 hide-scrollbar text-left">
-                                    <div className="invoice-paper p-12 border rounded-xl text-left">
-                                        <h3 className="text-2xl font-black text-slate-900 uppercase italic mb-12 border-b-4 border-slate-900 pb-4 italic text-center leading-none">LÁCTEOS LA POLACA GUSTALAC S.A.</h3>
-                                        <div className="grid grid-cols-2 gap-8 mb-12 text-left">
-                                            <div className="bg-slate-900 text-white p-6 rounded-[2rem] shadow-2xl">
-                                                <p className="text-[9px] font-black uppercase opacity-60 mb-2 italic tracking-widest leading-none">Nº DOCUMENTO</p>
-                                                <input className="bg-transparent text-2xl font-black w-full outline-none placeholder:text-slate-700" placeholder="000-000-000" value={formF.num} onChange={e => setFormF({...formF, num: e.target.value})} />
-                                            </div>
-                                            <div className="bg-slate-50 border p-6 rounded-[2rem] shadow-inner text-left text-left">
-                                                <p className="text-[9px] font-black text-slate-400 uppercase mb-2 italic tracking-widest leading-none">FECHA EMISIÓN</p>
-                                                <span className="text-xl font-black text-slate-700">{today}</span>
-                                            </div>
-                                        </div>
-                                        <table className="w-full invoice-table mb-12 text-left">
-                                            <thead><tr><th className="py-6">Descripción</th><th className="w-28 text-center">Cant.</th><th className="w-36 text-right">Unitario</th></tr></thead>
-                                            <tbody>
-                                                {formF.items.map((it, idx) => (
-                                                    <tr key={it.id}>
-                                                        <td className="font-black text-xs uppercase italic text-slate-700 py-6">{it.nombre}</td>
-                                                        <td className="p-0">
-                                                            <input type="number" className="w-full text-center py-6 font-black bg-orange-50/50 border-none text-orange-600 focus:bg-orange-100 transition-colors" value={it.q === 0 ? '' : it.q} placeholder="" onChange={e => {
-                                                                const ni = [...formF.items]; ni[idx].q = e.target.value === '' ? 0 : parseInt(e.target.value); setFormF({...formF, items: ni});
-                                                            }} />
-                                                        </td>
-                                                        <td className="text-right font-mono text-slate-400 italic">${it.costo.toFixed(4)}</td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                        <div className="bg-slate-900 text-white p-12 rounded-[4rem] flex justify-between items-center italic shadow-2xl text-left">
-                                            <span className="font-black uppercase text-sm tracking-widest opacity-50 italic italic leading-none">Total Neto Austro + IVA</span>
-                                            <span className="text-7xl font-black italic tracking-tighter leading-none">${totalF.toFixed(2)}</span>
-                                        </div>
+                        <div className="fixed inset-0 bg-black/80 z-[60] overflow-y-auto backdrop-blur-sm p-0 md:p-4">
+                            <div className="flex min-h-full items-end md:items-center justify-center">
+                                <div className="bg-white w-full max-w-2xl rounded-t-[2.5rem] md:rounded-3xl flex flex-col overflow-hidden shadow-2xl my-auto">
+                                    <div className="p-6 border-b flex justify-between items-center bg-slate-50 shrink-0">
+                                        <h3 className="font-black uppercase text-[10px] tracking-[0.2em] italic text-slate-400">Ingreso Factura Física</h3>
+                                        <button onClick={() => setModalF(false)} className="p-2"><Icon name="x"/></button>
                                     </div>
-                                </div>
-                                <div className="p-10 bg-slate-50 border-t flex justify-end gap-6 shadow-inner text-left">
-                                    <button onClick={() => setModalF(false)} className="px-12 py-5 font-black uppercase text-xs text-slate-400 hover:text-slate-600 transition-all italic text-left">Cerrar</button>
-                                    <button onClick={guardarFactura} className="bg-orange-600 text-white px-16 py-5 rounded-[2.5rem] font-black uppercase text-[11px] shadow-2xl italic transition-all hover:scale-105 active:scale-95 text-left">Grabar Factura ✨</button>
+                                    <div className="p-6 space-y-8 custom-scrollbar">
+                                        <div className="bg-[#075E54] p-8 rounded-3xl shadow-xl text-center">
+                                            <p className="text-[8px] font-bold uppercase text-white/50 mb-4 tracking-[0.3em]">Número de Documento</p>
+                                            <div className="flex justify-center items-center gap-2">
+                                                <input className="bg-white/10 text-white w-14 text-center text-xl font-black py-2 rounded-xl border border-white/20 outline-none" placeholder="000" maxLength="3" value={formF.n1} onChange={e => { setFormF({...formF, n1: e.target.value}); if (e.target.value.length === 3) input2.current.focus(); }} />
+                                                <span className="text-white opacity-40 font-black">-</span>
+                                                <input ref={input2} className="bg-white/10 text-white w-14 text-center text-xl font-black py-2 rounded-xl border border-white/20 outline-none" placeholder="000" maxLength="3" value={formF.n2} onChange={e => { setFormF({...formF, n2: e.target.value}); if (e.target.value.length === 3) input3.current.focus(); }} />
+                                                <span className="text-white opacity-40 font-black">-</span>
+                                                <input ref={input3} className="bg-white/10 text-white w-36 text-center text-xl font-black py-2 rounded-xl border border-white/20 outline-none" placeholder="000000000" maxLength="9" value={formF.n3} onChange={e => setFormF({...formF, n3: e.target.value})} />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-3">
+                                            <p className="text-[10px] font-black text-slate-300 uppercase tracking-widest italic text-center mb-6">Registro de Cantidades</p>
+                                            {formF.items.map((it, idx) => (
+                                                <div key={it.id} className="flex justify-between items-center p-4 bg-white rounded-2xl border border-slate-100 shadow-sm">
+                                                    <span className="text-[10px] font-bold text-slate-700 uppercase italic flex-1 pr-4 leading-none">{it.nombre}</span>
+                                                    <input type="number" className="w-20 p-3 text-center font-black bg-slate-50 rounded-xl border-2 border-transparent focus:border-[#128C7E] outline-none text-[#128C7E]" value={it.q || ''} placeholder="0" onChange={e => { const ni = [...formF.items]; ni[idx].q = parseInt(e.target.value) || 0; setFormF({...formF, items: ni}); }} />
+                                                </div>
+                                            ))}
+                                        </div>
+                                        {/* Relleno extra para asegurar que se pueda ver todo al final del scroll */}
+                                        <div className="h-4"></div>
+                                    </div>
+                                    <div className="p-6 border-t bg-white shrink-0">
+                                        <button onClick={guardarFactura} disabled={isSaving} className={`w-full ${isSaving ? 'bg-slate-300' : 'bg-[#128C7E]'} text-white py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all italic`}>
+                                            {isSaving ? 'Registrando...' : 'Ingresar a Inventario ✨'}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {modalC && (
-                        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-md text-left">
-                            <Card className="max-w-2xl w-full text-left p-12 text-left">
-                                <h3 className="text-2xl font-black uppercase italic mb-10 border-b border-slate-100 pb-4 italic tracking-tighter text-left">Despacho de Ruta</h3>
-                                <div className="space-y-8 text-left">
-                                    <div className="text-left text-left">
-                                        <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block italic tracking-widest leading-none italic text-left">Responsable</label>
-                                        <select className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-xs border-2 border-transparent focus:border-orange-500 outline-none shadow-inner transition-all" value={formC.ven} onChange={e => setFormC({...formC, ven: e.target.value})}>
-                                            <option value="">Seleccione Vendedor</option>
-                                            {VENDEDORES.map(v => <option key={v} value={v}>{v}</option>)}
-                                        </select>
+                    {/* MODAL COBRO - CORRECCIÓN DE SCROLL */}
+                    {modalPago && (
+                        <div className="fixed inset-0 bg-black/80 z-[60] overflow-y-auto backdrop-blur-sm p-0 md:p-4">
+                            <div className="flex min-h-full items-end md:items-center justify-center">
+                                <div className="bg-white w-full max-w-xl rounded-t-[2rem] md:rounded-3xl flex flex-col overflow-hidden shadow-2xl my-auto">
+                                    <div className="p-6 border-b flex justify-between items-center bg-slate-50 shrink-0">
+                                        <h3 className="font-black uppercase text-[10px] text-slate-400 italic">Gestión de Pago - Fact: {modalPago.numFactura}</h3>
+                                        <button onClick={() => setModalPago(null)} className="p-2"><Icon name="x"/></button>
                                     </div>
-                                    <div className="space-y-2 max-h-[45vh] overflow-y-auto pr-2 hide-scrollbar text-left">
-                                        {formC.items.map((it, idx) => (
-                                            <div key={it.id} className="flex justify-between items-center border-b border-slate-50 pb-4 italic text-left">
-                                                <span className="text-[11px] font-black uppercase flex-1 italic text-slate-600 leading-none">{it.nombre}</span>
-                                                <input type="number" placeholder="" className="w-24 p-3 bg-orange-50 rounded-xl text-center font-black text-orange-600 border-none outline-none focus:bg-orange-100 transition-colors" value={it.q === 0 ? '' : it.q} onChange={e => {
-                                                    const ni = [...formC.items]; ni[idx].q = e.target.value === '' ? 0 : parseInt(e.target.value); setFormC({...formC, items: ni});
-                                                }} />
+                                    <div className="p-6 space-y-8 custom-scrollbar">
+                                        <div className="bg-slate-900 text-white p-6 rounded-3xl text-center shadow-lg">
+                                            <p className="text-[8px] uppercase font-bold text-white/40 mb-2 italic">Total a Cancelar</p>
+                                            <p className="text-3xl font-black italic tracking-tighter text-orange-400">${modalPago.total?.toFixed(2)}</p>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-2">
+                                                <label className="text-[9px] font-black text-slate-400 uppercase italic">Monto Pagado / Abonado</label>
+                                                <input type="number" step="0.01" className="w-full p-4 bg-slate-50 rounded-2xl font-black text-lg border-2 border-transparent focus:border-[#128C7E] outline-none text-[#128C7E]" value={formPago.monto} onChange={e => setFormPago({...formPago, monto: e.target.value})} />
                                             </div>
-                                        ))}
+                                            <div className="space-y-2">
+                                                <label className="text-[9px] font-black text-slate-400 uppercase italic">Fecha de Operación</label>
+                                                <input type="date" className="w-full p-4 bg-slate-50 rounded-2xl font-black text-xs border-2 border-transparent focus:border-[#128C7E] outline-none text-slate-600" value={formPago.fecha} onChange={e => setFormPago({...formPago, fecha: e.target.value})} />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-3">
+                                            <label className="text-[9px] font-black text-slate-400 uppercase italic italic">Comprobante (Imagen)</label>
+                                            <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" id="pago-foto-input" />
+                                            <label htmlFor="pago-foto-input" className="flex flex-col items-center justify-center p-10 bg-white border-2 border-dashed border-slate-200 rounded-3xl cursor-pointer hover:border-[#128C7E]">
+                                                {formPago.foto ? <img src={formPago.foto} className="h-32 rounded-xl shadow-lg" /> : <Icon name="camera" size={40} className="text-slate-200 mb-2"/>}
+                                                <span className="text-[8px] font-black text-slate-300 mt-4 uppercase tracking-widest italic">Toca para subir foto</span>
+                                            </label>
+                                        </div>
+                                        <div className="h-4"></div>
                                     </div>
-                                    <div className="flex justify-end gap-6 pt-10 text-left">
-                                        <button onClick={() => setModalC(false)} className="px-8 py-4 font-black text-xs uppercase text-slate-400 hover:text-slate-600 italic">Cerrar</button>
-                                        <button onClick={guardarCarga} className="bg-orange-600 text-white px-12 py-4 rounded-3xl font-black uppercase text-xs shadow-xl italic transition-all hover:scale-105 active:scale-95">Despachar</button>
+                                    <div className="p-6 border-t bg-white shrink-0">
+                                        <button onClick={registrarPago} disabled={isSaving} className="w-full bg-[#128C7E] text-white py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all italic">Actualizar Pago ✨</button>
                                     </div>
                                 </div>
-                            </Card>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL DESPACHO - CORRECCIÓN DE SCROLL */}
+                    {modalC && (
+                        <div className="fixed inset-0 bg-black/80 z-[60] overflow-y-auto backdrop-blur-sm p-0 md:p-4">
+                            <div className="flex min-h-full items-end md:items-center justify-center">
+                                <div className="bg-white w-full max-w-xl rounded-t-[2.5rem] md:rounded-3xl flex flex-col overflow-hidden shadow-2xl my-auto">
+                                    <div className="p-6 border-b flex justify-between items-center bg-slate-50 shrink-0">
+                                        <h3 className="font-black uppercase text-[10px] text-slate-400 italic">Despacho de Ruta</h3>
+                                        <button onClick={() => setModalC(false)} className="p-2"><Icon name="x"/></button>
+                                    </div>
+                                    <div className="p-6 space-y-6 custom-scrollbar">
+                                        <div className="bg-slate-50 p-4 rounded-3xl border-2 border-slate-100">
+                                            <select className="w-full p-4 bg-white rounded-2xl font-black text-xs border border-slate-200 focus:border-orange-500 outline-none italic uppercase" value={formC.ven} onChange={e => setFormC({...formC, ven: e.target.value})}>
+                                                <option value="">-- Seleccionar Vendedor --</option>
+                                                {VENDEDORES.map(v => <option key={v} value={v}>{v}</option>)}
+                                            </select>
+                                        </div>
+                                        <div className="space-y-2">
+                                            {formC.items.map((it, idx) => (
+                                                <div key={it.id} className="flex justify-between items-center p-4 bg-white border border-slate-100 rounded-2xl shadow-sm">
+                                                    <span className="text-[10px] font-bold text-slate-600 flex-1 pr-4 uppercase italic leading-none">{it.nombre}</span>
+                                                    <input type="number" className="w-20 p-3 bg-orange-50 rounded-xl text-center font-black text-orange-700 border-none outline-none focus:bg-orange-100 transition-all" value={it.q || ''} placeholder="0" onChange={e => { const ni = [...formC.items]; ni[idx].q = parseInt(e.target.value) || 0; setFormC({...formC, items: ni}); }} />
+                                                </div>
+                                            ))}
+                                        </div>
+                                        <div className="h-4"></div>
+                                    </div>
+                                    <div className="p-6 border-t bg-white shrink-0">
+                                        <button onClick={guardarCarga} disabled={isSaving} className="w-full bg-[#075E54] text-white py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all italic">{isSaving ? 'Procesando...' : 'Confirmar Carga de Camión 🚛'}</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {modalComprobante && (
+                        <div className="fixed inset-0 bg-black/95 z-[70] flex flex-col items-center justify-center p-6" onClick={() => setModalComprobante(null)}>
+                            <img src={modalComprobante} className="max-w-full max-h-[80vh] rounded-3xl shadow-2xl" />
+                            <p className="mt-8 text-white font-black uppercase text-[10px] italic tracking-widest bg-white/10 px-6 py-3 rounded-full italic">Toca para cerrar</p>
                         </div>
                     )}
                 </div>
