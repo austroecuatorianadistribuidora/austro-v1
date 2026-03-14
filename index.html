@@ -348,7 +348,7 @@
                         )}
                     </main>
 
-                    {/* MODALES */}
+                    {/* MODAL: FACTURA */}
                     {modalF && (
                         <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4 backdrop-blur-md text-left">
                             <div className="bg-white w-full max-w-5xl h-[95vh] rounded-[3.5rem] flex flex-col overflow-hidden relative shadow-2xl">
@@ -356,12 +356,12 @@
                                 <div className="flex-1 overflow-y-auto p-12 hide-scrollbar">
                                     <div className="invoice-paper p-12 border rounded-xl text-left">
                                         <h3 className="text-2xl font-black text-slate-900 uppercase italic mb-12 border-b-4 border-slate-900 pb-4 italic text-center leading-none">LÁCTEOS LA POLACA GUSTALAC S.A.</h3>
-                                        <div className="grid grid-cols-2 gap-8 mb-12">
+                                        <div className="grid grid-cols-2 gap-8 mb-12 text-left">
                                             <div className="bg-slate-900 text-white p-6 rounded-[2rem] shadow-2xl">
                                                 <p className="text-[9px] font-black uppercase opacity-60 mb-2 italic tracking-widest leading-none">Nº DOCUMENTO</p>
                                                 <input className="bg-transparent text-2xl font-black w-full outline-none placeholder:text-slate-700" placeholder="000-000-000" value={formF.num} onChange={e => setFormF({...formF, num: e.target.value})} />
                                             </div>
-                                            <div className="bg-slate-50 border p-6 rounded-[2rem] shadow-inner text-left">
+                                            <div className="bg-slate-50 border p-6 rounded-[2rem] shadow-inner text-left text-left">
                                                 <p className="text-[9px] font-black text-slate-400 uppercase mb-2 italic tracking-widest leading-none">FECHA EMISIÓN</p>
                                                 <span className="text-xl font-black text-slate-700">{today}</span>
                                             </div>
@@ -383,7 +383,7 @@
                                             </tbody>
                                         </table>
                                         <div className="bg-slate-900 text-white p-12 rounded-[4rem] flex justify-between items-center italic shadow-2xl text-left">
-                                            <span className="font-black uppercase text-sm tracking-widest opacity-50 italic leading-none">Total Neto Austro + IVA</span>
+                                            <span className="font-black uppercase text-sm tracking-widest opacity-50 italic italic leading-none">Total Neto Austro + IVA</span>
                                             <span className="text-7xl font-black italic tracking-tighter leading-none">${totalF.toFixed(2)}</span>
                                         </div>
                                     </div>
@@ -418,7 +418,7 @@
                                             </div>
                                         ))}
                                     </div>
-                                    <div className="flex justify-end gap-6 pt-10 text-left">
+                                    <div className="flex justify-end gap-6 pt-10">
                                         <button onClick={() => setModalC(false)} className="px-8 py-4 font-black text-xs uppercase text-slate-400 hover:text-slate-600 italic">Cerrar</button>
                                         <button onClick={guardarCarga} className="bg-orange-600 text-white px-12 py-4 rounded-3xl font-black uppercase text-xs shadow-xl italic transition-all hover:scale-105 active:scale-95">Despachar</button>
                                     </div>
