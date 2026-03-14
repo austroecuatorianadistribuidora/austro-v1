@@ -94,7 +94,7 @@
         const TOTAL_FIJO = 3579.80;
         const VENDEDORES = ["Diego Xavier Siavichay", "Byron Armando Miranda Capa"];
 
-        // Configuración de respaldo (la que proporcionaste inicialmente)
+        // CONFIGURACIÓN DE DATOS (MANTENIDA EXACTA)
         const BACKUP_CONFIG = {
             apiKey: "AIzaSyBu0b-O86orBd_fQut3i9n5s0W9fLpkRFI",
             authDomain: "austrodistribuidoraecuatoriana.firebaseapp.com",
@@ -124,6 +124,7 @@
 
             const [modalF, setModalF] = useState(false);
             const [modalC, setModalC] = useState(false);
+            const [modalLiquidacion, setModalLiquidacion] = useState(null);
             const [modalPago, setModalPago] = useState(null);
             const [modalComprobante, setModalComprobante] = useState(null);
 
@@ -132,105 +133,107 @@
 
             const today = new Date().toISOString().split('T')[0];
 
+            // Estados de formularios
             const [formF, setFormF] = useState({ 
                 n1: '', n2: '', n3: '',
                 items: PRODUCTOS.map(p => ({...p, q: 0}))
             });
-            const [formC, setFormC] = useState({ ven: '', items: PRODUCTOS.map(p => ({...p, q: 0})) });
+            const [formC, setFormC] = useState({ 
+                ven: '', 
+                items: PRODUCTOS.map(p => ({...p, q: 0})),
+                fecha: today
+            });
             const [formPago, setFormPago] = useState({ monto: 0, fecha: today, foto: null });
 
+            const [formLiq, setFormLiq] = useState({
+                itemsDevueltos: PRODUCTOS.map(p => ({...p, q: 0})),
+                gastos: { combustible: 0, alimentacion: 0, viaticos: 0, hospedaje: 0, mantenimiento: 0, otros: 0 },
+                fechaLiquidacion: today,
+                fotoDeposito: null
+            });
+
+            // INICIALIZACIÓN DE FIREBASE (MANTENIDA EXACTA)
             useEffect(() => {
                 const initFirebase = async () => {
                     try {
                         let config;
                         try {
                             config = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : BACKUP_CONFIG;
-                        } catch (e) {
-                            config = BACKUP_CONFIG;
-                        }
-
+                        } catch (e) { config = BACKUP_CONFIG; }
                         const app = FB.initializeApp(config);
                         const auth = FB.getAuth(app);
                         const db = FB.getFirestore(app);
                         const appId = typeof __app_id !== 'undefined' ? __app_id : 'austro-v27';
-
-                        // Guardar en window para acceso global de funciones
                         window.appDb = db;
                         window.appId = appId;
-
-                        // Intentar autenticación
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await FB.signInWithCustomToken(auth, __initial_auth_token);
-                        } else {
-                            await FB.signInAnonymously(auth);
-                        }
-
-                        // Escuchar estado de usuario
-                        FB.onAuthStateChanged(auth, (u) => {
-                            setUser(u);
-                            setLoading(false);
-                        });
-
-                        // Sincronizar colecciones
+                        } else { await FB.signInAnonymously(auth); }
+                        FB.onAuthStateChanged(auth, (u) => { setUser(u); setLoading(false); });
                         const facturasRef = FB.collection(db, 'artifacts', appId, 'public', 'data', 'facturas');
                         const despachosRef = FB.collection(db, 'artifacts', appId, 'public', 'data', 'despachos');
-
-                        FB.onSnapshot(facturasRef, (s) => {
-                            setFacturas(s.docs.map(d => ({ id: d.id, ...d.data() })));
-                        }, (err) => console.error("Facturas snapshot error:", err));
-
-                        FB.onSnapshot(despachosRef, (s) => {
-                            setCargas(s.docs.map(d => ({ id: d.id, ...d.data() })));
-                        }, (err) => console.error("Despachos snapshot error:", err));
-
-                    } catch (e) {
-                        console.error("Firebase Init Error:", e);
-                        setError("Fallo al conectar con el servidor.");
-                        setLoading(false);
-                    }
+                        FB.onSnapshot(facturasRef, (s) => setFacturas(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+                        FB.onSnapshot(despachosRef, (s) => setCargas(s.docs.map(d => ({ id: d.id, ...d.data() }))));
+                    } catch (e) { setError("Fallo al establecer conexión."); setLoading(false); }
                 };
                 initFirebase();
             }, []);
 
             const utilidadReal = useMemo(() => {
-                return cargas.reduce((acc, c) => acc + (c.items || []).reduce((s, i) => s + (i.q * (i.pvd - i.costo)), 0), 0);
+                return cargas.reduce((acc, c) => {
+                    const items = c.items || [];
+                    const itemsDevueltos = c.itemsDevueltos || [];
+                    return acc + items.reduce((s, i) => {
+                        const devueltos = itemsDevueltos.find(d => d.id === i.id)?.q || 0;
+                        const vendidos = i.q - devueltos;
+                        return s + (vendidos * (i.pvd - i.costo));
+                    }, 0);
+                }, 0);
             }, [cargas]);
 
-            const handlePhotoChange = (e) => {
+            const calculosLiquidacion = useMemo(() => {
+                if (!modalLiquidacion) return { totalCarga: 0, valorDevolucion: 0, ventaNeta: 0, totalGastos: 0, totalADepositar: 0 };
+                
+                const totalCarga = modalLiquidacion.totalCargado || 0;
+                const valorDevolucion = formLiq.itemsDevueltos.reduce((acc, dev) => {
+                    const pBase = PRODUCTOS.find(p => p.id === dev.id);
+                    return acc + (dev.q * (pBase?.pvd || 0));
+                }, 0);
+                const ventaNeta = totalCarga - valorDevolucion;
+                const totalGastos = Object.values(formLiq.gastos).reduce((a, b) => a + (parseFloat(b) || 0), 0);
+                const totalADepositar = ventaNeta - totalGastos;
+
+                return { totalCarga, valorDevolucion, ventaNeta, totalGastos, totalADepositar };
+            }, [modalLiquidacion, formLiq]);
+
+            const handlePhotoChange = (e, target) => {
                 const file = e.target.files[0];
                 if (file) {
                     const reader = new FileReader();
-                    reader.onloadend = () => setFormPago(prev => ({ ...prev, foto: reader.result }));
+                    reader.onloadend = () => {
+                        if (target === 'pago') setFormPago(prev => ({ ...prev, foto: reader.result }));
+                        if (target === 'liq') setFormLiq(prev => ({ ...prev, fotoDeposito: reader.result }));
+                    };
                     reader.readAsDataURL(file);
                 }
             };
 
             const guardarFactura = async () => {
                 if (!user || isSaving) return;
-                if (!formF.n1 || !formF.n2 || !formF.n3) { setError("Número de factura incompleto."); return; }
+                if (!formF.n1 || !formF.n2 || !formF.n3) { setError("Factura incompleta."); return; }
                 const subtotal = formF.items.reduce((a, b) => a + (b.q * b.costo), 0);
                 if (subtotal <= 0) { setError("Ingrese cantidades."); return; }
-
                 setIsSaving(true);
                 const fullNum = `${formF.n1}-${formF.n2}-${formF.n3}`;
-
                 try {
                     const facturasRef = FB.collection(window.appDb, 'artifacts', window.appId, 'public', 'data', 'facturas');
                     await FB.addDoc(facturasRef, {
-                        numFactura: fullNum,
-                        fecha: today,
-                        items: formF.items,
-                        total: subtotal * 1.15,
-                        montoPagado: 0,
-                        estadoPago: 'pendiente',
-                        utilidad: formF.items.reduce((a, b) => a + (b.q * (b.pvd - b.costo)), 0),
-                        createdAt: new Date().toISOString(),
-                        timestamp: FB.serverTimestamp()
+                        numFactura: fullNum, fecha: today, items: formF.items, total: subtotal * 1.15,
+                        montoPagado: 0, estadoPago: 'pendiente', createdAt: new Date().toISOString(), timestamp: FB.serverTimestamp()
                     });
                     setModalF(false);
                     setFormF({ n1: '', n2: '', n3: '', items: PRODUCTOS.map(p => ({...p, q: 0})) });
-                    setError(null);
-                } catch(e) { setError("Error al guardar en base de datos."); }
+                } catch(e) { setError("Error al guardar."); }
                 finally { setIsSaving(false); }
             };
 
@@ -243,17 +246,10 @@
                     let estado = 'pendiente';
                     if (nuevoMonto >= modalPago.total - 0.01) estado = 'cancelado';
                     else if (nuevoMonto > 0) estado = 'abonado';
-
-                    await FB.updateDoc(docRef, {
-                        montoPagado: nuevoMonto,
-                        estadoPago: estado,
-                        fechaPago: formPago.fecha,
-                        comprobante: formPago.foto
-                    });
+                    await FB.updateDoc(docRef, { montoPagado: nuevoMonto, estadoPago: estado, fechaPago: formPago.fecha, comprobante: formPago.foto });
                     setModalPago(null);
                     setFormPago({ monto: 0, fecha: today, foto: null });
-                    setError(null);
-                } catch (e) { setError("No se pudo registrar el pago."); }
+                } catch (e) { setError("Error al registrar pago."); }
                 finally { setIsSaving(false); }
             };
 
@@ -265,22 +261,34 @@
                 try {
                     const despachosRef = FB.collection(window.appDb, 'artifacts', window.appId, 'public', 'data', 'despachos');
                     await FB.addDoc(despachosRef, {
-                        responsable: formC.ven,
-                        fecha: today,
-                        totalCargado,
-                        items: formC.items,
-                        createdAt: new Date().toISOString(),
-                        timestamp: FB.serverTimestamp()
+                        responsable: formC.ven, fecha: formC.fecha, totalCargado, items: formC.items,
+                        estado: 'activa', createdAt: new Date().toISOString(), timestamp: FB.serverTimestamp()
                     });
                     setModalC(false);
-                    setFormC({ ven: '', items: PRODUCTOS.map(p => ({...p, q: 0})) });
-                    setError(null);
+                    setFormC({ ven: '', items: PRODUCTOS.map(p => ({...p, q: 0})), fecha: today });
                 } catch (e) { setError("Error al procesar despacho."); }
                 finally { setIsSaving(false); }
             };
 
+            const registrarLiquidacion = async () => {
+                if (!modalLiquidacion || isSaving) return;
+                setIsSaving(true);
+                try {
+                    const docRef = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'despachos', modalLiquidacion.id);
+                    await FB.updateDoc(docRef, {
+                        ...formLiq,
+                        estado: 'liquidada',
+                        totalADepositar: calculosLiquidacion.totalADepositar,
+                        ventaNeta: calculosLiquidacion.ventaNeta,
+                    });
+                    setModalLiquidacion(null);
+                    setFormLiq({ itemsDevueltos: PRODUCTOS.map(p => ({...p, q: 0})), gastos: { combustible: 0, alimentacion: 0, viaticos: 0, hospedaje: 0, mantenimiento: 0, otros: 0 }, fechaLiquidacion: today, fotoDeposito: null });
+                } catch (e) { setError("Error al liquidar ruta."); }
+                finally { setIsSaving(false); }
+            };
+
             const eliminarRegistro = async (col, id) => {
-                if (!confirm("¿Desea eliminar permanentemente este registro?")) return;
+                if (!confirm("¿Eliminar permanentemente?")) return;
                 try {
                     const docRef = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', col, id);
                     await FB.deleteDoc(docRef);
@@ -294,63 +302,34 @@
                 { id: 'inventario', icon: 'package', label: 'Stock' }
             ];
 
-            if (loading) return (
-                <div className="h-screen flex flex-col items-center justify-center bg-white">
-                    <div className="w-10 h-10 border-4 border-[#128C7E] border-t-transparent rounded-full animate-spin mb-4"></div>
-                    <p className="text-[#128C7E] font-bold text-xs uppercase tracking-widest italic">Estableciendo Conexión...</p>
-                </div>
-            );
-
             return (
                 <div className="min-h-screen md:pl-72 flex flex-col">
-                    {/* Header */}
                     <header className="bg-[#075E54] text-white p-4 sticky top-0 z-40 shadow-md flex justify-between items-center">
-                        <div className="flex items-center gap-3">
-                            <div className="bg-white/20 p-2 rounded-lg"><Icon name="package" size={20}/></div>
-                            <h1 className="font-bold text-lg tracking-tight italic">AustroPro</h1>
-                        </div>
-                        <div className="flex items-center gap-2">
-                             <div className={`w-3 h-3 rounded-full ${user ? 'bg-[#25D366] shadow-[0_0_8px_#25D366]' : 'bg-red-500 animate-pulse'}`}></div>
-                             <span className="text-[8px] font-bold uppercase opacity-50 hidden sm:inline">{user ? 'Online' : 'Offline'}</span>
-                        </div>
+                        <div className="flex items-center gap-3"><Icon name="package" size={20}/><h1 className="font-bold text-lg tracking-tight italic">AustroPro</h1></div>
+                        <div className={`w-3 h-3 rounded-full ${user ? 'bg-[#25D366] shadow-[0_0_8px_#25D366]' : 'bg-red-500 animate-pulse'}`}></div>
                     </header>
 
-                    {/* Sidebar Desktop */}
                     <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-72 bg-white border-r border-slate-200 flex-col p-6 z-30 shadow-sm">
-                        <div className="mb-10 mt-4 px-2">
-                             <h2 className="text-[#128C7E] font-extrabold text-2xl italic tracking-tighter">AUSTRO PRO</h2>
-                             <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1">SISTEMA INTEGRADO</p>
-                        </div>
+                        <div className="mb-10 mt-4 px-2"><h2 className="text-[#128C7E] font-extrabold text-2xl italic tracking-tighter">AUSTRO PRO</h2></div>
                         <nav className="space-y-2 flex-1">
                             {navItems.map(item => (
                                 <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-4 p-4 rounded-xl transition-all font-bold text-sm ${activeTab === item.id ? 'sidebar-active' : 'text-slate-500 hover:bg-slate-50'}`}>
-                                    <Icon name={item.icon} size={20}/>
-                                    <span>{item.label}</span>
+                                    <Icon name={item.icon} size={20}/><span>{item.label}</span>
                                 </button>
                             ))}
                         </nav>
                     </aside>
 
-                    {/* Contenido Principal */}
                     <main className="flex-1 p-4 md:p-10 pb-24 max-w-5xl mx-auto w-full">
-                        {error && <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-[10px] font-bold border border-red-100 uppercase italic flex justify-between items-center"><span>{error}</span><button onClick={()=>setError(null)}><Icon name="x" size={12}/></button></div>}
+                        {error && <div className="mb-6 p-4 bg-red-50 text-red-600 rounded-xl text-[10px] font-bold border border-red-100 uppercase italic flex justify-between"><span>{error}</span><button onClick={()=>setError(null)}><Icon name="x" size={12}/></button></div>}
 
                         {activeTab === 'dashboard' && (
                             <div className="space-y-6 fade-in">
-                                <h2 className="text-xl font-bold text-slate-800 border-l-4 border-[#128C7E] pl-3 italic">Panel Principal</h2>
+                                <h2 className="text-xl font-bold text-slate-800 border-l-4 border-[#128C7E] pl-3 italic">Resumen de Movimientos</h2>
                                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                    <Card className="border-b-4 border-slate-300">
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Egresos Fijos</p>
-                                        <p className="text-2xl font-black text-slate-800">${TOTAL_FIJO.toLocaleString()}</p>
-                                    </Card>
-                                    <Card className="border-b-4 border-[#128C7E]">
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Margen Ruta</p>
-                                        <p className="text-2xl font-black text-[#128C7E]">${utilidadReal.toLocaleString()}</p>
-                                    </Card>
-                                    <Card className={`border-b-4 ${utilidadReal >= TOTAL_FIJO ? 'border-[#25D366]' : 'border-red-500'}`}>
-                                        <p className="text-[10px] font-bold text-slate-400 uppercase mb-1">Utilidad Neta</p>
-                                        <p className={`text-2xl font-black ${utilidadReal >= TOTAL_FIJO ? 'text-[#075E54]' : 'text-red-500'}`}>${(utilidadReal - TOTAL_FIJO).toLocaleString()}</p>
-                                    </Card>
+                                    <Card className="border-b-4 border-slate-300"><p className="text-[10px] font-bold text-slate-400 uppercase">Egresos Fijos</p><p className="text-2xl font-black text-slate-800">${TOTAL_FIJO.toLocaleString()}</p></Card>
+                                    <Card className="border-b-4 border-[#128C7E]"><p className="text-[10px] font-bold text-slate-400 uppercase">Utilidad Rutas</p><p className="text-2xl font-black text-[#128C7E]">${utilidadReal.toLocaleString()}</p></Card>
+                                    <Card className={`border-b-4 ${utilidadReal >= TOTAL_FIJO ? 'border-[#25D366]' : 'border-red-500'}`}><p className="text-[10px] font-bold text-slate-400 uppercase">Balance Neto</p><p className={`text-2xl font-black ${utilidadReal >= TOTAL_FIJO ? 'text-[#075E54]' : 'text-red-500'}`}>${(utilidadReal - TOTAL_FIJO).toLocaleString()}</p></Card>
                                 </div>
                             </div>
                         )}
@@ -359,36 +338,22 @@
                             <div className="space-y-4 fade-in">
                                 <div className="flex justify-between items-center mb-6">
                                     <h2 className="text-xl font-bold text-slate-800 border-l-4 border-[#128C7E] pl-3 italic">Bodega: Ingresos</h2>
-                                    <button onClick={() => setModalF(true)} className="bg-[#128C7E] text-white p-4 rounded-full shadow-lg active:scale-90 transition-all">
-                                        <Icon name="plus" size={24}/>
-                                    </button>
+                                    <button onClick={() => setModalF(true)} className="bg-[#128C7E] text-white p-4 rounded-full shadow-lg active:scale-90 transition-all"><Icon name="plus" size={24}/></button>
                                 </div>
                                 <div className="space-y-3">
                                     {facturas.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).map(f => (
                                         <Card key={f.id} className="p-4 border-l-4 border-slate-200">
                                             <div className="flex justify-between items-start mb-3">
-                                                <div>
-                                                    <h4 className="font-black text-slate-700 uppercase italic text-sm">Factura {f.numFactura}</h4>
-                                                    <p className="text-[9px] text-slate-400 font-bold uppercase italic">{f.fecha}</p>
-                                                </div>
+                                                <div><h4 className="font-black text-slate-700 uppercase italic text-sm">Factura {f.numFactura}</h4><p className="text-[9px] text-slate-400 font-bold uppercase italic">{f.fecha}</p></div>
                                                 <button onClick={() => eliminarRegistro('facturas', f.id)} className="text-slate-200 hover:text-red-500"><Icon name="trash-2" size={16}/></button>
                                             </div>
                                             <div className="flex flex-wrap gap-2 mt-4">
-                                                <div className="bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 min-w-[90px]">
-                                                    <p className="text-[7px] font-bold text-slate-400 uppercase italic">Total</p>
-                                                    <p className="text-xs font-black text-slate-600">${f.total?.toFixed(2)}</p>
-                                                </div>
-                                                <div className="bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 min-w-[90px]">
-                                                    <p className="text-[7px] font-bold text-slate-400 uppercase italic">Pagado</p>
-                                                    <p className="text-xs font-black text-[#128C7E]">${f.montoPagado?.toFixed(2) || '0.00'}</p>
-                                                </div>
-                                                <div className="bg-orange-50 px-3 py-2 rounded-lg border border-orange-100 min-w-[90px]">
-                                                    <p className="text-[7px] font-bold text-orange-400 uppercase italic">Saldo</p>
-                                                    <p className="text-xs font-black text-orange-600">${(f.total - (f.montoPagado || 0)).toFixed(2)}</p>
-                                                </div>
+                                                <div className="bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 min-w-[90px]"><p className="text-[7px] font-bold text-slate-400 uppercase">Total</p><p className="text-xs font-black text-slate-600">${f.total?.toFixed(2)}</p></div>
+                                                <div className="bg-slate-50 px-3 py-2 rounded-lg border border-slate-100 min-w-[90px]"><p className="text-[7px] font-bold text-slate-400 uppercase">Pagado</p><p className="text-xs font-black text-[#128C7E]">${f.montoPagado?.toFixed(2) || '0.00'}</p></div>
+                                                <div className="bg-orange-50 px-3 py-2 rounded-lg border border-orange-100 min-w-[90px]"><p className="text-[7px] font-bold text-orange-400 uppercase">Saldo</p><p className="text-xs font-black text-orange-600">${(f.total - (f.montoPagado || 0)).toFixed(2)}</p></div>
                                             </div>
                                             <div className="flex justify-between items-center mt-4 pt-3 border-t border-slate-50">
-                                                <span className={`text-[8px] font-black uppercase px-2 py-1 rounded border italic tracking-widest ${f.estadoPago === 'cancelado' ? 'badge-cancelado' : f.estadoPago === 'abonado' ? 'badge-abonado' : 'badge-pendiente'}`}>{f.estadoPago || 'pendiente'}</span>
+                                                <span className={`text-[8px] font-black uppercase px-2 py-1 rounded border italic ${f.estadoPago === 'cancelado' ? 'badge-cancelado' : f.estadoPago === 'abonado' ? 'badge-abonado' : 'badge-pendiente'}`}>{f.estadoPago || 'pendiente'}</span>
                                                 <div className="flex gap-2">
                                                     {f.comprobante && <button onClick={() => setModalComprobante(f.comprobante)} className="p-2 bg-[#25D366]/10 text-[#075E54] rounded-lg"><Icon name="image" size={16}/></button>}
                                                     <button onClick={() => { setModalPago(f); setFormPago({ monto: f.montoPagado || 0, fecha: f.fechaPago || today, foto: f.comprobante || null }); }} className="bg-[#128C7E] text-white px-3 py-1.5 rounded-lg font-black text-[9px] uppercase italic tracking-widest">Cobro / Pago</button>
@@ -396,7 +361,6 @@
                                             </div>
                                         </Card>
                                     ))}
-                                    {facturas.length === 0 && <p className="text-center py-20 text-slate-300 text-[10px] uppercase font-bold italic tracking-widest">Sin registros de facturas</p>}
                                 </div>
                             </div>
                         )}
@@ -404,19 +368,33 @@
                         {activeTab === 'logistica' && (
                             <div className="space-y-4 fade-in">
                                 <div className="flex justify-between items-center mb-6">
-                                    <h2 className="text-xl font-bold text-slate-800 border-l-4 border-[#128C7E] pl-3 italic">Rutas de Despacho</h2>
+                                    <h2 className="text-xl font-bold text-slate-800 border-l-4 border-[#128C7E] pl-3 italic">Rutas de Venta</h2>
                                     <button onClick={() => setModalC(true)} className="bg-[#128C7E] text-white p-4 rounded-full shadow-lg active:scale-90 transition-all"><Icon name="truck" size={24}/></button>
                                 </div>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                                     {cargas.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt)).map(c => (
-                                        <Card key={c.id} className="border-l-4 border-[#25D366]">
+                                        <Card key={c.id} className={`border-l-4 ${c.estado === 'liquidada' ? 'border-slate-400 opacity-80' : 'border-[#25D366]'}`}>
                                             <div className="flex justify-between items-start mb-4">
-                                                <h4 className="font-black text-slate-800 text-[10px] uppercase italic">{c.responsable}</h4>
-                                                <button onClick={() => eliminarRegistro('despachos', c.id)} className="text-slate-200 hover:text-red-400"><Icon name="x-circle" size={16}/></button>
+                                                <div><h4 className="font-black text-slate-800 text-[10px] uppercase italic">{c.responsable}</h4><p className="text-[8px] font-bold text-slate-400 italic">Salida: {c.fecha}</p></div>
+                                                <div className="flex gap-2">
+                                                    {c.fotoDeposito && <button onClick={() => setModalComprobante(c.fotoDeposito)} className="text-[#128C7E]"><Icon name="image" size={16}/></button>}
+                                                    <button onClick={() => eliminarRegistro('despachos', c.id)} className="text-slate-200 hover:text-red-400"><Icon name="trash-2" size={16}/></button>
+                                                </div>
                                             </div>
-                                            <div className="flex justify-between items-end bg-slate-50 p-4 rounded-xl border border-slate-100">
-                                                <p className="text-[8px] text-slate-400 font-black uppercase italic">Monto en Ruta</p>
+                                            <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 mb-4">
+                                                <p className="text-[8px] text-slate-400 font-black uppercase italic">Monto Total Carga</p>
                                                 <p className="text-xl font-black text-[#075E54]">${c.totalCargado?.toLocaleString()}</p>
+                                            </div>
+                                            <div className="flex justify-between items-center pt-3 border-t border-slate-50">
+                                                <span className={`text-[8px] font-black uppercase px-2 py-1 rounded border italic ${c.estado === 'liquidada' ? 'bg-slate-100 text-slate-600' : 'bg-green-100 text-green-700 border-green-200'}`}>{c.estado}</span>
+                                                {c.estado === 'activa' ? (
+                                                    <button onClick={() => setModalLiquidacion(c)} className="bg-[#128C7E] text-white px-4 py-2 rounded-lg font-black text-[9px] uppercase italic tracking-widest shadow-md">Liquidar Ruta</button>
+                                                ) : (
+                                                    <div className="text-right">
+                                                        <p className="text-[7px] font-bold text-slate-400 uppercase italic">Depósito: {c.fechaLiquidacion}</p>
+                                                        <p className="text-xs font-black text-[#075E54]">${c.totalADepositar?.toFixed(2)}</p>
+                                                    </div>
+                                                )}
                                             </div>
                                         </Card>
                                     ))}
@@ -426,19 +404,20 @@
 
                         {activeTab === 'inventario' && (
                             <div className="space-y-6 fade-in">
-                                <h2 className="text-xl font-bold text-slate-800 border-l-4 border-[#128C7E] pl-3 italic">Bodega: Stock Real</h2>
+                                <h2 className="text-xl font-bold text-slate-800 border-l-4 border-[#128C7E] pl-3 italic">Bodega Central</h2>
                                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                                     {PRODUCTOS.map(p => {
                                         const entradas = facturas.reduce((acc, f) => acc + (f.items?.find(it => it.id === p.id)?.q || 0), 0);
-                                        const salidas = cargas.reduce((acc, c) => acc + (c.items?.find(it => it.id === p.id)?.q || 0), 0);
-                                        const stock = entradas - salidas;
+                                        const despachadoTotal = cargas.reduce((acc, c) => acc + (c.items?.find(it => it.id === p.id)?.q || 0), 0);
+                                        const devueltoTotal = cargas.reduce((acc, c) => acc + (c.itemsDevueltos?.find(it => it.id === p.id)?.q || 0), 0);
+                                        const stock = entradas - despachadoTotal + devueltoTotal;
                                         return (
                                             <Card key={p.id} className="text-center p-4">
                                                 <p className="text-[8px] font-black text-slate-400 uppercase h-6 mb-4 leading-none">{p.nombre}</p>
                                                 <p className={`text-4xl font-black ${stock < 20 ? 'text-red-500' : 'text-[#128C7E]'}`}>{stock}</p>
                                                 <div className="flex justify-around mt-4 pt-3 border-t border-slate-50">
                                                     <div><p className="text-[6px] font-bold text-slate-300 italic">ENT</p><p className="text-[9px] font-bold text-slate-400">+{entradas}</p></div>
-                                                    <div><p className="text-[6px] font-bold text-slate-300 italic">SAL</p><p className="text-[9px] font-bold text-slate-400">-{salidas}</p></div>
+                                                    <div><p className="text-[6px] font-bold text-slate-300 italic">SALE</p><p className="text-[9px] font-bold text-slate-400">-{despachadoTotal - devueltoTotal}</p></div>
                                                 </div>
                                             </Card>
                                         );
@@ -463,12 +442,12 @@
                             <div className="flex min-h-full items-end md:items-center justify-center">
                                 <div className="bg-white w-full max-w-2xl rounded-t-[2.5rem] md:rounded-3xl flex flex-col overflow-hidden shadow-2xl my-auto">
                                     <div className="p-6 border-b flex justify-between items-center bg-slate-50 shrink-0">
-                                        <h3 className="font-black uppercase text-[10px] tracking-[0.2em] italic text-slate-400">Ingreso de Mercadería</h3>
+                                        <h3 className="font-black uppercase text-[10px] italic text-slate-400">Ingreso Factura</h3>
                                         <button onClick={() => setModalF(false)} className="p-2"><Icon name="x"/></button>
                                     </div>
                                     <div className="p-6 space-y-8 custom-scrollbar">
                                         <div className="bg-[#075E54] p-8 rounded-3xl shadow-xl text-center">
-                                            <p className="text-[8px] font-bold uppercase text-white/50 mb-4 tracking-[0.3em]">Número de Factura</p>
+                                            <p className="text-[8px] font-bold uppercase text-white/50 mb-4 tracking-[0.3em]">Nº Documento</p>
                                             <div className="flex justify-center items-center gap-2">
                                                 <input className="bg-white/10 text-white w-14 text-center text-xl font-black py-2 rounded-xl border border-white/20 outline-none" placeholder="000" maxLength="3" value={formF.n1} onChange={e => { setFormF({...formF, n1: e.target.value}); if (e.target.value.length === 3) input2.current.focus(); }} />
                                                 <span className="text-white opacity-40 font-black">-</span>
@@ -485,30 +464,136 @@
                                                 </div>
                                             ))}
                                         </div>
-                                        <div className="h-6"></div>
                                     </div>
                                     <div className="p-6 border-t bg-white shrink-0">
-                                        <button onClick={guardarFactura} disabled={isSaving} className={`w-full ${isSaving ? 'bg-slate-300' : 'bg-[#128C7E]'} text-white py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all italic tracking-tighter`}>
-                                            {isSaving ? 'Procesando...' : 'Confirmar e Ingresar a Stock ✨'}
-                                        </button>
+                                        <button onClick={guardarFactura} disabled={isSaving} className={`w-full ${isSaving ? 'bg-slate-300' : 'bg-[#128C7E]'} text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all italic`}>Registrar Ingreso Bodega ✨</button>
                                     </div>
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* MODAL COBRO */}
+                    {/* MODAL DESPACHO */}
+                    {modalC && (
+                        <div className="fixed inset-0 bg-black/80 z-[60] overflow-y-auto backdrop-blur-sm p-0 md:p-4">
+                            <div className="flex min-h-full items-end md:items-center justify-center">
+                                <div className="bg-white w-full max-w-2xl rounded-t-[2.5rem] md:rounded-3xl flex flex-col overflow-hidden shadow-2xl my-auto">
+                                    <div className="p-6 border-b flex justify-between items-center bg-slate-50 shrink-0">
+                                        <h3 className="font-black uppercase text-[10px] text-slate-400 italic">Despacho de Camión</h3>
+                                        <button onClick={() => setModalC(false)} className="p-2"><Icon name="x"/></button>
+                                    </div>
+                                    <div className="p-6 space-y-6 custom-scrollbar">
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="bg-slate-50 p-4 rounded-3xl border-2 border-slate-100 flex flex-col">
+                                                <label className="text-[8px] font-black uppercase text-slate-400 mb-1 italic">Responsable de Ruta</label>
+                                                <select className="bg-transparent font-black text-[10px] outline-none italic uppercase" value={formC.ven} onChange={e => setFormC({...formC, ven: e.target.value})}>
+                                                    <option value="">Vendedor...</option>
+                                                    {VENDEDORES.map(v => <option key={v} value={v}>{v}</option>)}
+                                                </select>
+                                            </div>
+                                            <div className="bg-slate-50 p-4 rounded-3xl border-2 border-slate-100 flex flex-col">
+                                                <label className="text-[8px] font-black uppercase text-slate-400 mb-1 italic">Fecha Despacho</label>
+                                                <input type="date" className="bg-transparent font-black text-[10px] outline-none text-[#128C7E]" value={formC.fecha} onChange={e => setFormC({...formC, fecha: e.target.value})} />
+                                            </div>
+                                        </div>
+                                        <div className="space-y-2">
+                                            <p className="text-[9px] font-black text-slate-300 uppercase text-center mb-4 italic">Productos a Cargar</p>
+                                            {formC.items.map((it, idx) => (
+                                                <div key={it.id} className="flex justify-between items-center p-4 bg-white border border-slate-100 rounded-2xl shadow-sm">
+                                                    <span className="text-[10px] font-bold text-slate-600 flex-1 uppercase italic leading-none">{it.nombre}</span>
+                                                    <input type="number" className="w-20 p-3 bg-orange-50 rounded-xl text-center font-black text-orange-700 border-none outline-none focus:bg-orange-100 transition-all" value={it.q || ''} placeholder="0" onChange={e => { const ni = [...formC.items]; ni[idx].q = parseInt(e.target.value) || 0; setFormC({...formC, items: ni}); }} />
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="p-6 border-t bg-white shrink-0">
+                                        <button onClick={guardarCarga} disabled={isSaving} className="w-full bg-[#075E54] text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all italic">Confirmar Carga de Camión 🚛</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL LIQUIDACIÓN */}
+                    {modalLiquidacion && (
+                        <div className="fixed inset-0 bg-black/80 z-[60] overflow-y-auto backdrop-blur-sm p-0 md:p-4">
+                            <div className="flex min-h-full items-end md:items-center justify-center">
+                                <div className="bg-white w-full max-w-2xl rounded-t-[2.5rem] md:rounded-3xl flex flex-col overflow-hidden shadow-2xl my-auto">
+                                    <div className="p-6 border-b flex justify-between items-center bg-slate-50 shrink-0">
+                                        <h3 className="font-black uppercase text-[10px] text-slate-400 italic">Liquidar Ruta: {modalLiquidacion.responsable}</h3>
+                                        <button onClick={() => setModalLiquidacion(null)} className="p-2"><Icon name="x"/></button>
+                                    </div>
+                                    <div className="p-6 space-y-8 custom-scrollbar">
+                                        <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-lg border-b-4 border-orange-500">
+                                            <div className="flex justify-between items-center opacity-60 mb-2 font-bold text-[8px] uppercase tracking-widest">
+                                                <span>Carga Inicial: ${calculosLiquidacion.totalCarga.toFixed(2)}</span>
+                                                <span>Devolución: -${calculosLiquidacion.valorDevolucion.toFixed(2)}</span>
+                                            </div>
+                                            <p className="text-[10px] font-bold uppercase opacity-50 mb-1 italic">Monto Líquido a Depositar</p>
+                                            <p className="text-4xl font-black italic tracking-tighter text-[#25D366]">${calculosLiquidacion.totalADepositar?.toFixed(2)}</p>
+                                        </div>
+
+                                        <div className="grid grid-cols-1 gap-4">
+                                             <div className="bg-slate-50 p-4 rounded-3xl border-2 border-slate-100 flex flex-col">
+                                                <label className="text-[8px] font-black uppercase text-slate-400 mb-1 italic text-center">Fecha de Devolución / Liquidación</label>
+                                                <input type="date" className="bg-transparent font-black text-center text-[10px] outline-none text-[#128C7E]" value={formLiq.fechaLiquidacion} onChange={e => setFormLiq({...formLiq, fechaLiquidacion: e.target.value})} />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-3">
+                                            <p className="text-[9px] font-black text-orange-500 uppercase text-center mb-4 italic tracking-widest">Retorno de Producto (Bodega)</p>
+                                            {modalLiquidacion.items.map((it, idx) => (
+                                                <div key={it.id} className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                                    <span className="text-[9px] font-bold text-slate-700 uppercase italic flex-1 pr-4">{it.nombre}</span>
+                                                    <input type="number" className="w-20 p-3 text-center font-black bg-white rounded-xl border border-[#128C7E]/20 outline-none text-slate-600" placeholder="0" value={formLiq.itemsDevueltos[idx].q || ''} onChange={e => {
+                                                        const ni = [...formLiq.itemsDevueltos];
+                                                        const val = parseInt(e.target.value) || 0;
+                                                        ni[idx].q = val > it.q ? it.q : val;
+                                                        setFormLiq({...formLiq, itemsDevueltos: ni});
+                                                    }} />
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-4 border-t pt-6">
+                                            <p className="col-span-2 text-[9px] font-black text-red-500 uppercase text-center mb-2 italic">Registro de Gastos</p>
+                                            {['combustible', 'alimentacion', 'viaticos', 'hospedaje', 'mantenimiento', 'otros'].map(g => (
+                                                <div key={g} className="space-y-1">
+                                                    <label className="text-[8px] font-black text-slate-400 uppercase italic leading-none">{g}</label>
+                                                    <input type="number" className="w-full p-3 bg-slate-50 rounded-xl font-bold text-[11px] outline-none" placeholder="0.00" value={formLiq.gastos[g]} onChange={e => setFormLiq({...formLiq, gastos: {...formLiq.gastos, [g]: e.target.value}})} />
+                                                </div>
+                                            ))}
+                                        </div>
+
+                                        <div className="space-y-3 pt-4 pb-8">
+                                            <label className="text-[9px] font-black text-slate-400 uppercase italic">Foto del Depósito</label>
+                                            <input type="file" accept="image/*" onChange={(e) => handlePhotoChange(e, 'liq')} className="hidden" id="liq-foto-input" />
+                                            <label htmlFor="liq-foto-input" className="flex flex-col items-center justify-center p-8 bg-white border-2 border-dashed border-slate-200 rounded-3xl cursor-pointer hover:border-[#128C7E]">
+                                                {formLiq.fotoDeposito ? <img src={formLiq.fotoDeposito} className="h-24 rounded-xl shadow-lg" /> : <Icon name="camera" size={32} className="text-slate-200 mb-2"/>}
+                                                <span className="text-[8px] font-black text-slate-300 mt-2 uppercase italic text-center">Subir Comprobante</span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div className="p-6 border-t bg-white shrink-0">
+                                        <button onClick={registrarLiquidacion} disabled={isSaving} className="w-full bg-[#128C7E] text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all italic tracking-tighter">Cerrar Ruta y Liquidar Dinero ✨</button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* MODAL COBRO FACTURAS */}
                     {modalPago && (
                         <div className="fixed inset-0 bg-black/80 z-[60] overflow-y-auto backdrop-blur-sm p-0 md:p-4">
                             <div className="flex min-h-full items-end md:items-center justify-center">
                                 <div className="bg-white w-full max-w-xl rounded-t-[2rem] md:rounded-3xl flex flex-col overflow-hidden shadow-2xl my-auto">
                                     <div className="p-6 border-b flex justify-between items-center bg-slate-50 shrink-0">
-                                        <h3 className="font-black uppercase text-[10px] text-slate-400 italic">Estado de Pago: {modalPago.numFactura}</h3>
+                                        <h3 className="font-black uppercase text-[10px] text-slate-400 italic">Pago Factura: {modalPago.numFactura}</h3>
                                         <button onClick={() => setModalPago(null)} className="p-2"><Icon name="x"/></button>
                                     </div>
                                     <div className="p-6 space-y-8 custom-scrollbar">
                                         <div className="bg-slate-900 text-white p-6 rounded-3xl text-center shadow-lg border-b-4 border-orange-500">
-                                            <p className="text-[8px] uppercase font-bold text-white/40 mb-1 italic">Total Documento</p>
+                                            <p className="text-[8px] uppercase font-bold text-white/40 mb-1">Total Documento</p>
                                             <p className="text-3xl font-black italic tracking-tighter text-white">${modalPago.total?.toFixed(2)}</p>
                                         </div>
                                         <div className="grid grid-cols-2 gap-4">
@@ -521,52 +606,17 @@
                                                 <input type="date" className="w-full p-4 bg-slate-50 rounded-2xl font-black text-xs border-2 border-transparent focus:border-[#128C7E] outline-none text-slate-600" value={formPago.fecha} onChange={e => setFormPago({...formPago, fecha: e.target.value})} />
                                             </div>
                                         </div>
-                                        <div className="space-y-3">
+                                        <div className="space-y-3 pb-6">
                                             <label className="text-[9px] font-black text-slate-400 uppercase italic italic">Comprobante de Pago</label>
-                                            <input type="file" accept="image/*" onChange={handlePhotoChange} className="hidden" id="pago-foto-input" />
+                                            <input type="file" accept="image/*" onChange={(e) => handlePhotoChange(e, 'pago')} className="hidden" id="pago-foto-input" />
                                             <label htmlFor="pago-foto-input" className="flex flex-col items-center justify-center p-10 bg-white border-2 border-dashed border-slate-200 rounded-3xl cursor-pointer hover:border-[#128C7E]">
                                                 {formPago.foto ? <img src={formPago.foto} className="h-32 rounded-xl shadow-lg" /> : <Icon name="camera" size={40} className="text-slate-200 mb-2"/>}
-                                                <span className="text-[8px] font-black text-slate-300 mt-4 uppercase tracking-widest italic">Subir Foto Comprobante</span>
+                                                <span className="text-[8px] font-black text-slate-300 mt-4 uppercase tracking-widest italic text-center">Subir Foto Comprobante</span>
                                             </label>
                                         </div>
-                                        <div className="h-4"></div>
                                     </div>
                                     <div className="p-6 border-t bg-white shrink-0">
-                                        <button onClick={registrarPago} disabled={isSaving} className="w-full bg-[#128C7E] text-white py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all italic">Actualizar Cobranza ✨</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* MODAL DESPACHO */}
-                    {modalC && (
-                        <div className="fixed inset-0 bg-black/80 z-[60] overflow-y-auto backdrop-blur-sm p-0 md:p-4">
-                            <div className="flex min-h-full items-end md:items-center justify-center">
-                                <div className="bg-white w-full max-w-xl rounded-t-[2.5rem] md:rounded-3xl flex flex-col overflow-hidden shadow-2xl my-auto">
-                                    <div className="p-6 border-b flex justify-between items-center bg-slate-50 shrink-0">
-                                        <h3 className="font-black uppercase text-[10px] text-slate-400 italic">Carga de Ruta</h3>
-                                        <button onClick={() => setModalC(false)} className="p-2"><Icon name="x"/></button>
-                                    </div>
-                                    <div className="p-6 space-y-6 custom-scrollbar">
-                                        <div className="bg-slate-50 p-4 rounded-3xl border-2 border-slate-100">
-                                            <select className="w-full p-4 bg-white rounded-2xl font-black text-xs border border-slate-200 focus:border-orange-500 outline-none italic uppercase" value={formC.ven} onChange={e => setFormC({...formC, ven: e.target.value})}>
-                                                <option value="">-- Seleccionar Vendedor --</option>
-                                                {VENDEDORES.map(v => <option key={v} value={v}>{v}</option>)}
-                                            </select>
-                                        </div>
-                                        <div className="space-y-2">
-                                            {formC.items.map((it, idx) => (
-                                                <div key={it.id} className="flex justify-between items-center p-4 bg-white border border-slate-100 rounded-2xl shadow-sm">
-                                                    <span className="text-[10px] font-bold text-slate-600 flex-1 pr-4 uppercase italic leading-none">{it.nombre}</span>
-                                                    <input type="number" className="w-20 p-3 bg-orange-50 rounded-xl text-center font-black text-orange-700 border-none outline-none focus:bg-orange-100 transition-all" value={it.q || ''} placeholder="0" onChange={e => { const ni = [...formC.items]; ni[idx].q = parseInt(e.target.value) || 0; setFormC({...formC, items: ni}); }} />
-                                                </div>
-                                            ))}
-                                        </div>
-                                        <div className="h-6"></div>
-                                    </div>
-                                    <div className="p-6 border-t bg-white shrink-0">
-                                        <button onClick={guardarCarga} disabled={isSaving} className="w-full bg-[#075E54] text-white py-5 rounded-2xl font-black uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all italic uppercase">{isSaving ? 'Procesando...' : 'Despachar Camión 🚛'}</button>
+                                        <button onClick={registrarPago} disabled={isSaving} className="w-full bg-[#128C7E] text-white py-5 rounded-2xl font-black uppercase text-xs shadow-xl active:scale-95 transition-all italic">Actualizar Cobranza ✨</button>
                                     </div>
                                 </div>
                             </div>
@@ -576,7 +626,7 @@
                     {modalComprobante && (
                         <div className="fixed inset-0 bg-black/95 z-[70] flex flex-col items-center justify-center p-6" onClick={() => setModalComprobante(null)}>
                             <img src={modalComprobante} className="max-w-full max-h-[80vh] rounded-3xl shadow-2xl" />
-                            <p className="mt-8 text-white font-black uppercase text-[10px] italic tracking-widest bg-white/10 px-6 py-3 rounded-full italic">Toca para cerrar previsualización</p>
+                            <p className="mt-8 text-white font-black uppercase text-[10px] italic tracking-widest bg-white/10 px-6 py-3 rounded-full italic text-center leading-relaxed">Toca para cerrar previsualización</p>
                         </div>
                     )}
                 </div>
