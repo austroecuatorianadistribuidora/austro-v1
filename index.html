@@ -11,14 +11,14 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
     
-    <!-- Firebase SDK (Versión Compat para estabilidad en archivo único) -->
+    <!-- Firebase SDK (Versión Compat) -->
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
 
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;600;700;800&display=swap');
-        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; color: #1e293b; overflow-x: hidden; }
+        body { font-family: 'Plus Jakarta Sans', sans-serif; background-color: #f8fafc; color: #1e293b; overflow-x: hidden; text-align: left; }
         
         .invoice-paper { 
             background: white; 
@@ -90,7 +90,7 @@
         const TOTAL_FIJO = 3579.80;
         const VENDEDORES = ["Diego Xavier Siavichay", "Byron Armando Miranda Capa"];
 
-        // --- 2. CONFIGURACIÓN DE FIREBASE (CREDENTIALS) ---
+        // --- 2. CONFIGURACIÓN DE FIREBASE (TUS DATOS REALES) ---
         const firebaseConfig = {
             apiKey: "AIzaSyBu0b-O86orBd_fQut3i9n5s0W9fLpkRFI",
             authDomain: "austrodistribuidoraecuatoriana.firebaseapp.com",
@@ -100,7 +100,7 @@
             appId: "1:711061794814:web:65b028a387ecf277ca5aaf"
         };
 
-        // Inicializar Firebase
+        // Inicializar
         if (!firebase.apps.length) firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
         const auth = firebase.auth();
@@ -154,14 +154,14 @@
                 return () => unsubscribe();
             }, []);
 
-            // Sincronización Realtime
+            // Sincronización Firestore
             useEffect(() => {
                 if (!user) return;
                 const baseRef = db.collection('artifacts').doc(pathId).collection('public').doc('data');
                 
                 const unsubF = baseRef.collection('facturas').onSnapshot(
                     s => setFacturas(s.docs.map(d => ({id: d.id, ...d.data()}))),
-                    e => setError("Permiso Firestore Denegado. Revisa las 'Reglas'.")
+                    e => setError("Permiso denegado. Revisa las 'Reglas' en Firebase.")
                 );
                 
                 const unsubC = baseRef.collection('despachos').onSnapshot(
@@ -180,7 +180,6 @@
                         fecha: today,
                         items: formF.items,
                         total: totalF,
-                        utilidad: formF.items.reduce((a, b) => a + (b.q * (b.pvd - b.costo)), 0),
                         createdAt: new Date().toISOString()
                     });
                     setModalF(false);
@@ -208,7 +207,7 @@
             if (loading) return (
                 <div className="h-screen flex flex-col items-center justify-center bg-white space-y-4">
                     <div className="w-12 h-12 border-4 border-orange-600 border-t-transparent rounded-full animate-spin"></div>
-                    <p className="font-black text-orange-600 uppercase tracking-widest text-[10px]">Austro Pro • Sincronizando Nube</p>
+                    <p className="font-black text-orange-600 uppercase tracking-widest text-[10px]">Austro Pro • Nube</p>
                 </div>
             );
 
@@ -239,29 +238,29 @@
                             ))}
                         </nav>
                         <div className="mt-auto p-4 bg-slate-900 rounded-[2rem] text-white text-center shadow-xl">
-                            <p className="text-[8px] font-black uppercase opacity-40 mb-1 italic">Ruta:</p>
+                            <p className="text-[8px] font-black uppercase opacity-40 mb-1">Ruta Actual</p>
                             <p className="text-[10px] font-bold text-orange-400 truncate">{pathId}</p>
                         </div>
                     </aside>
 
-                    <main className="p-4 md:p-12 max-w-7xl mx-auto w-full pb-32 text-left">
+                    <main className="p-4 md:p-12 max-w-7xl mx-auto w-full pb-32">
                         {error && <div className="mb-8 p-6 bg-red-50 text-red-700 border-2 border-red-200 rounded-[2rem] font-black text-xs uppercase italic animate-bounce shadow-lg">{error}</div>}
 
                         {activeTab === 'dashboard' && (
                             <div className="space-y-10 fade-in text-left">
                                 <div className="border-b-4 border-slate-900 pb-6 mb-10">
-                                    <h2 className="text-4xl font-black uppercase italic tracking-tighter text-slate-800 leading-none">Panel Gerencial</h2>
+                                    <h2 className="text-4xl font-black uppercase italic tracking-tighter text-slate-800 leading-none text-left">Gerencia</h2>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 text-white font-black italic">
-                                    <Card className="bg-slate-900 border-none p-10"><p className="text-[11px] uppercase opacity-40 mb-6 tracking-widest leading-none">Gastos Fijos</p><p className="text-5xl tracking-tighter">${TOTAL_FIJO.toLocaleString()}</p></Card>
-                                    <Card className="bg-orange-600 border-none p-10"><p className="text-[11px] uppercase opacity-60 mb-6 tracking-widest leading-none">Utilidad Ruta</p><p className="text-5xl tracking-tighter">${utilidadReal.toLocaleString()}</p></Card>
+                                    <Card className="bg-slate-900 border-none p-10"><p className="text-[11px] uppercase opacity-40 mb-6 tracking-widest">Gastos Fijos</p><p className="text-5xl tracking-tighter">${TOTAL_FIJO.toLocaleString()}</p></Card>
+                                    <Card className="bg-orange-600 border-none p-10"><p className="text-[11px] uppercase opacity-60 mb-6 tracking-widest">Utilidad Ruta</p><p className="text-5xl tracking-tighter">${utilidadReal.toLocaleString()}</p></Card>
                                     <Card className={`${utilidadReal >= TOTAL_FIJO ? 'bg-green-600' : 'bg-red-600'} border-none p-10`}>
                                         <p className="text-[11px] uppercase opacity-60 mb-6 tracking-widest leading-none">Neto Austro</p>
                                         <p className="text-5xl tracking-tighter">${(utilidadReal - TOTAL_FIJO).toLocaleString()}</p>
                                     </Card>
                                 </div>
                                 <Card className="p-12 border-none shadow-2xl bg-white text-left">
-                                    <h3 className="font-black text-2xl uppercase tracking-tighter mb-10 border-b-2 border-slate-900 pb-2 italic">Gastos Operativos Mensuales</h3>
+                                    <h3 className="font-black text-2xl uppercase tracking-tighter mb-10 border-b-2 border-slate-900 pb-2 italic">Gastos Operativos</h3>
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-12">
                                         <div className="space-y-3">
                                             {GASTOS_FIJOS_LISTA.slice(0, 7).map((g,i) => (
@@ -280,7 +279,7 @@
 
                         {activeTab === 'facturacion' && (
                             <div className="space-y-6 fade-in text-left">
-                                <div className="flex justify-between items-center mb-10 text-left">
+                                <div className="flex justify-between items-center mb-10">
                                     <h2 className="text-3xl font-black uppercase italic tracking-tighter leading-none">Facturación</h2>
                                     <button onClick={() => setModalF(true)} className="bg-orange-600 text-white px-10 py-5 rounded-[2rem] shadow-2xl font-black uppercase text-xs hover:scale-105 transition-all">Nueva Factura</button>
                                 </div>
@@ -293,7 +292,7 @@
                                             </div>
                                             <div className="flex items-center gap-6">
                                                 <div className="text-right font-black">
-                                                    <p className="text-[8px] uppercase opacity-40 italic leading-none mb-1">Monto Neto</p>
+                                                    <p className="text-[8px] uppercase opacity-40 italic">Monto Final</p>
                                                     <p className="text-2xl tracking-tighter text-slate-800">${f.total?.toFixed(2)}</p>
                                                 </div>
                                                 <button onClick={() => db.collection('artifacts').doc(pathId).collection('public').doc('data').collection('facturas').doc(f.id).delete()} className="p-4 text-slate-200 hover:text-red-500 transition-colors"><Icon name="trash-2" size={24}/></button>
@@ -306,8 +305,8 @@
 
                         {activeTab === 'logistica' && (
                             <div className="space-y-6 fade-in text-left">
-                                <div className="flex justify-between items-center mb-10 text-left">
-                                    <h2 className="text-3xl font-black uppercase italic tracking-tighter leading-none">Logística</h2>
+                                <div className="flex justify-between items-center mb-10">
+                                    <h2 className="text-3xl font-black uppercase italic tracking-tighter leading-none text-left">Logística</h2>
                                     <button onClick={() => setModalC(true)} className="bg-orange-600 text-white px-10 py-5 rounded-[2rem] shadow-2xl font-black uppercase text-xs">Cargar Ruta</button>
                                 </div>
                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -339,7 +338,7 @@
                                             <Card key={p.id} className="relative overflow-hidden text-left border-t-8 border-orange-500">
                                                 <p className="text-[10px] font-black text-slate-400 uppercase mb-4 leading-tight italic tracking-widest">{p.nombre}</p>
                                                 <p className={`text-6xl font-black tracking-tighter text-center ${stock < 50 ? 'text-red-500' : 'text-slate-800'}`}>{stock}</p>
-                                                <p className="text-[9px] font-bold text-slate-400 mt-6 text-center uppercase tracking-widest italic leading-none">Stock en Nube</p>
+                                                <p className="text-[9px] font-bold text-slate-400 mt-6 text-center uppercase tracking-widest italic leading-none">Existencias</p>
                                             </Card>
                                         );
                                     })}
@@ -348,7 +347,7 @@
                         )}
                     </main>
 
-                    {/* MODAL: FACTURA */}
+                    {/* MODALES */}
                     {modalF && (
                         <div className="fixed inset-0 bg-slate-900/95 z-50 flex items-center justify-center p-4 backdrop-blur-md text-left">
                             <div className="bg-white w-full max-w-5xl h-[95vh] rounded-[3.5rem] flex flex-col overflow-hidden relative shadow-2xl">
@@ -356,7 +355,7 @@
                                 <div className="flex-1 overflow-y-auto p-12 hide-scrollbar">
                                     <div className="invoice-paper p-12 border rounded-xl text-left">
                                         <h3 className="text-2xl font-black text-slate-900 uppercase italic mb-12 border-b-4 border-slate-900 pb-4 italic text-center leading-none">LÁCTEOS LA POLACA GUSTALAC S.A.</h3>
-                                        <div className="grid grid-cols-2 gap-8 mb-12 text-left">
+                                        <div className="grid grid-cols-2 gap-8 mb-12">
                                             <div className="bg-slate-900 text-white p-6 rounded-[2rem] shadow-2xl">
                                                 <p className="text-[9px] font-black uppercase opacity-60 mb-2 italic tracking-widest leading-none">Nº DOCUMENTO</p>
                                                 <input className="bg-transparent text-2xl font-black w-full outline-none placeholder:text-slate-700" placeholder="000-000-000" value={formF.num} onChange={e => setFormF({...formF, num: e.target.value})} />
@@ -401,8 +400,8 @@
                             <Card className="max-w-2xl w-full text-left p-12 text-left">
                                 <h3 className="text-2xl font-black uppercase italic mb-10 border-b border-slate-100 pb-4 italic tracking-tighter">Despacho de Ruta</h3>
                                 <div className="space-y-8 text-left">
-                                    <div className="text-left">
-                                        <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block italic tracking-widest leading-none italic">Responsable</label>
+                                    <div className="text-left text-left">
+                                        <label className="text-[10px] font-black uppercase text-slate-400 mb-2 block italic tracking-widest leading-none italic text-left">Responsable</label>
                                         <select className="w-full p-5 bg-slate-50 rounded-2xl font-black uppercase text-xs border-2 border-transparent focus:border-orange-500 outline-none shadow-inner transition-all" value={formC.ven} onChange={e => setFormC({...formC, ven: e.target.value})}>
                                             <option value="">Seleccione Vendedor</option>
                                             {VENDEDORES.map(v => <option key={v} value={v}>{v}</option>)}
@@ -418,7 +417,7 @@
                                             </div>
                                         ))}
                                     </div>
-                                    <div className="flex justify-end gap-6 pt-10">
+                                    <div className="flex justify-end gap-6 pt-10 text-left">
                                         <button onClick={() => setModalC(false)} className="px-8 py-4 font-black text-xs uppercase text-slate-400 hover:text-slate-600 italic">Cerrar</button>
                                         <button onClick={guardarCarga} className="bg-orange-600 text-white px-12 py-4 rounded-3xl font-black uppercase text-xs shadow-xl italic transition-all hover:scale-105 active:scale-95">Despachar</button>
                                     </div>
