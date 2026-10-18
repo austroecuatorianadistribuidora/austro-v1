@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AustroPro v3.4 ✨ | Bodega, Devoluciones (Pérdida 100%), Facturación y Ganancias</title>
+    <title>AustroPolaca Control ✨ | Bodega, 5 Rutas, Devoluciones y Ganancias</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="AustroPro">
+    <meta name="apple-mobile-web-app-title" content="AustroPolaca Control">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#075E54">
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxMDAgMTAwIj48Y2lyY2xlIGN4PSI1MCIgY3k9IjUwIiByPSI1MCIgZmlsbD0iIzEyOEM3RSIvPjx0ZXh0IHg9IjUwIiB5PSI2OCIgZm9udC1mYW1pbHk9IidQbHVzIEpha2FydGEgU2FucycsIHNhbnMtc2VyaWYiIGZvbnQtc2l6ZT0iNjAiIGZvbnQtd2VpZ2h0PSI4MDAiIGZpbGw9IndoaXRlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5BPC90ZXh0Pjwvc3ZnPg==">
@@ -160,7 +160,16 @@
         utilidad17: parseFloat((p.costo * 0.17).toFixed(6)),
     }));
 
-    const VENDEDORES = ["Andrés Cárdenas", "Diego Xavier Siavichay"];
+    const VENDEDORES = ["Andrés Cárdenas", "Diego Xavier Siavichay", "Vendedor Asignado"];
+
+    // ── LAS 5 RUTAS OFICIALES DE DISTRIBUCIÓN ──
+    const RUTAS_OFICIALES = [
+        { id: 'canar1',   nombre: 'Cañar 1',   zona: 'Azogues / Biblián / Cañar',              badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',      barColor: 'border-l-blue-600' },
+        { id: 'canar2',   nombre: 'Cañar 2',   zona: 'La Troncal / El Tambo / Suscal',          badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-200',  barColor: 'border-l-indigo-600' },
+        { id: 'oriente1', nombre: 'Oriente 1', zona: 'Macas / Sucúa / Morona Santiago',        badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',barColor: 'border-l-emerald-600' },
+        { id: 'oriente2', nombre: 'Oriente 2', zona: 'Gualaquiza / Limón Indanza / Méndez',     badgeColor: 'bg-teal-100 text-teal-800 border-teal-200',      barColor: 'border-l-teal-600' },
+        { id: 'cuenca',   nombre: 'Cuenca',    zona: 'Cuenca Urbana & Periferia',              badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',    barColor: 'border-l-amber-600' }
+    ];
 
     // Factura referente oficial cargada en memoria
     const FACTURA_REFERENTE_PDF = "data:application/pdf;base64,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Pj4KZW5kb2JqCjIgMCBvYmoKPDwvUHJvY1NldCBbL1BERiAvVGV4dCAvSW1hZ2VCIC9JbWFnZUMgL0ltYWdlSV0KL0ZvbnQgPDwKL0YxIDcgMCBSCi9GMiA4IDAgUgovRlQyIDYgMCBSCj4+Ci9YT2JqZWN0IDw8Ci9JbWcxIDUgMCBSCj4+Cj4+CmVuZG9iago5IDAgb2JqCjw8Ci9Qcm9kdWNlciAoV2luRGV2IDMxLjAgKDMxLjAuMTM5LjEpKQovQ3JlYXRpb25EYXRlIChEOjIwMjYwMzEyMTAzOTUxKQo+PgplbmRvYmoKMTAgMCBvYmoKPDwKL1R5cGUgL0NhdGFsb2cKL1BhZ2VzIDEgMCBSCi9PcGVuQWN0aW9uIFszIDAgUiAvRml0SCBudWxsXQovUGFnZUxheW91dCAvT25lQ29sdW1uCj4+CmVuZG9iagp4cmVmCjAgMTEKMDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDExNDM2IDAwMDAwIG4gCjAwMDAwMTE3MTAgMDAwMDAgbiAKMDAwMDAwMDAxNSAwMDAwMCBuIAowMDAwMDAwMTYzIDAwMDAwIG4gCjAwMDAwMDU5MTMgMDAwMDAgbiAKMDAwMDAxMTMzOSAwMDAwMCBuIAowMDAwMDExNDkzIDAwMDAwIG4gCjAwMDAwMTE1OTkgMDAwMDAgbiAKMDAwMDAxMTg0NiAwMDAwMCBuIAowMDAwMDExOTM3IDAwMDAwIG4gCnRyYWlsZXIKPDwKL1NpemUgMTEKL1Jvb3QgMTAgMCBSCi9JbmZvIDkgMCBSCi9JRFs8YzZkNjA0Y2I2N2Y0NDZmMjE1YzU0YTZlY2MyOGI4YzM+PGM2ZDYwNGNiNjdmNDQ2ZjIxNWM1NGE2ZWNjMjhiOGMzPl0KPj4Kc3RhcnR4cmVmCjEyMDQxCiUlRU9GCg==";
@@ -283,6 +292,7 @@
         const [modalDocGasto, setModalDocGasto]         = useState(false);
         const [modalDevolucion, setModalDevolucion]     = useState(false);
         const [filtroDevMotivo, setFiltroDevMotivo]     = useState('todos');
+        const [filtroRutaSeleccionada, setFiltroRutaSeleccionada] = useState('todas');
         const [modalPagoCompra, setModalPagoCompra]     = useState(null);
         const [visorDoc, setVisorDoc]                   = useState(null);
         const [showReset, setShowReset]                 = useState(false);
@@ -372,8 +382,13 @@
             tipoArchivo: ''
         });
 
-        // Form Despacho
-        const [formC, setFormC] = useState({ ven:'', items: PRODUCTOS.map(p=>({...p,q:0})), fecha:today });
+        // Form Despacho de la Mañana (Arrancar el Día en una de las 5 Rutas)
+        const [formC, setFormC] = useState({
+            ruta: 'canar1',
+            ven: VENDEDORES[0],
+            items: PRODUCTOS_POLACA.map(p => ({ ...p, q: 0 })),
+            fecha: today
+        });
         const [formLiq, setFormLiq] = useState({
             itemsDevueltos: PRODUCTOS.map(p=>({...p,q:0})),
             gastos: { combustible:0, alimentacion:0, viaticos:0, hospedaje:0, mantenimiento:0, otros:0 },
@@ -1091,30 +1106,72 @@
         };
 
         const guardarCarga = async () => {
-            if (!user || isSaving || !formC.ven) return;
-            const total = formC.items.reduce((a,b) => a + (b.q * b.pvd), 0);
-            if (total <= 0) {
-                setError("Por favor ingresa cantidades para despachar.");
+            if (!user || isSaving || !formC.ruta) return;
+            const rutaInfo = RUTAS_OFICIALES.find(r => r.id === formC.ruta) || { nombre: formC.ruta };
+            const totalUnidades = formC.items.reduce((a, b) => a + (parseInt(b.q) || 0), 0);
+            const totalVenta = formC.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * (b.pvd || 0)), 0);
+            const totalCosto = formC.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * (b.costo || 0)), 0);
+
+            if (totalUnidades <= 0) {
+                setError("Por favor ingresa las cantidades de los productos que suben al camión.");
                 return;
             }
             setIsSaving(true);
             try {
                 await FB.addDoc(col('despachos'), {
-                    responsable: formC.ven,
+                    rutaId: formC.ruta,
+                    ruta: rutaInfo.nombre,
+                    responsable: formC.ven || rutaInfo.nombre,
                     fecha: formC.fecha,
-                    totalCargado: total,
-                    items: formC.items,
-                    estado: 'activa',
+                    totalUnidades,
+                    totalCargado: totalVenta,
+                    totalCosto,
+                    items: formC.items.map(it => ({
+                        id: it.id,
+                        codigo: it.codigo,
+                        nombre: it.nombre,
+                        q: parseInt(it.q) || 0,
+                        costo: it.costo,
+                        pvd: it.pvd
+                    })),
+                    estado: 'activa', // En ruta en la mañana
                     createdAt: new Date().toISOString()
                 });
                 setModalC(false);
-                setFormC({ ven:'', items: PRODUCTOS.map(p=>({...p,q:0})), fecha:today });
-                mostrarAviso("¡Ruta despachada!");
-            } catch {
-                setError("Error al despachar.");
+                setFormC({
+                    ruta: 'canar1',
+                    ven: VENDEDORES[0],
+                    items: PRODUCTOS_POLACA.map(p => ({ ...p, q: 0 })),
+                    fecha: today
+                });
+                mostrarAviso(`¡Ruta ${rutaInfo.nombre} despachada con éxito! ${totalUnidades} unidades en ruta.`);
+            } catch(e) {
+                setError(e.message || "Error al despachar la ruta.");
             } finally {
                 setIsSaving(false);
             }
+        };
+
+        const abrirModalCierreDiario = (c) => {
+            setFormLiq({
+                itemsDevueltos: PRODUCTOS_POLACA.map(p => {
+                    const itCargado = (c.items || []).find(i => i.id === p.id);
+                    return {
+                        id: p.id,
+                        codigo: p.codigo,
+                        nombre: p.nombre,
+                        qCargado: itCargado ? parseInt(itCargado.q) || 0 : 0,
+                        q: 0, // Lo que restó / devolución de la noche
+                        costo: p.costo,
+                        pvd: p.pvd
+                    };
+                }),
+                gastos: { combustible: 0, alimentacion: 0, viaticos: 0, hospedaje: 0, mantenimiento: 0, otros: 0 },
+                fechaLiquidacion: today,
+                fotoDeposito: null,
+                observaciones: ''
+            });
+            setModalLiquidacion(c);
         };
 
         const registrarLiquidacion = async () => {
@@ -1122,19 +1179,60 @@
             setIsSaving(true);
             try {
                 const ref = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'despachos', modalLiquidacion.id);
-                const valDev = formLiq.itemsDevueltos.reduce((a,d) => a + (d.q * (PRODUCTOS.find(p=>p.id===d.id)?.pvd||0)), 0);
-                const ventaNeta = (modalLiquidacion.totalCargado||0) - valDev;
-                const totGastos = Object.values(formLiq.gastos).reduce((a,b) => a + (parseFloat(b)||0), 0);
-                await FB.updateDoc(ref, {
-                    ...formLiq,
-                    estado: 'liquidada',
-                    totalADepositar: ventaNeta - totGastos,
-                    ventaNeta
+
+                let totalUnidadesVendidas = 0;
+                let totalUnidadesDevueltas = 0;
+                let ventaNeta = 0;
+                let costoVendido = 0;
+
+                const itemsLiquidados = formLiq.itemsDevueltos.map(it => {
+                    const dev = parseInt(it.q) || 0;
+                    const carg = parseInt(it.qCargado) || 0;
+                    const vend = Math.max(0, carg - dev);
+                    totalUnidadesVendidas += vend;
+                    totalUnidadesDevueltas += dev;
+                    ventaNeta += vend * (it.pvd || 0);
+                    costoVendido += vend * (it.costo || 0);
+                    return {
+                        id: it.id,
+                        codigo: it.codigo,
+                        nombre: it.nombre,
+                        qCargado: carg,
+                        qDevuelto: dev,
+                        qVendido: vend,
+                        costo: it.costo,
+                        pvd: it.pvd,
+                        subtotalVenta: vend * it.pvd
+                    };
                 });
+
+                const totGastos = Object.values(formLiq.gastos).reduce((a, b) => a + (parseFloat(b) || 0), 0);
+                const totalADepositar = Math.max(0, ventaNeta - totGastos);
+
+                await FB.updateDoc(ref, {
+                    itemsDevueltos: formLiq.itemsDevueltos.map(it => ({
+                        id: it.id,
+                        q: parseInt(it.q) || 0
+                    })),
+                    itemsLiquidados,
+                    gastos: formLiq.gastos,
+                    fechaLiquidacion: formLiq.fechaLiquidacion,
+                    fotoDeposito: formLiq.fotoDeposito,
+                    observaciones: formLiq.observaciones || '',
+                    estado: 'liquidada',
+                    totalUnidadesVendidas,
+                    totalUnidadesDevueltas,
+                    costoVendido,
+                    ventaNeta,
+                    totGastos,
+                    totalADepositar,
+                    updatedAt: new Date().toISOString()
+                });
+
                 setModalLiquidacion(null);
-                mostrarAviso("¡Liquidación registrada! Ganancias actualizadas en tiempo real.");
-            } catch {
-                setError("Error al liquidar ruta.");
+                mostrarAviso(`¡Cierre de ${modalLiquidacion.ruta || modalLiquidacion.responsable} completado! Venta: $${ventaNeta.toFixed(2)} | A depositar: $${totalADepositar.toFixed(2)}`);
+            } catch(e) {
+                setError(e.message || "Error al registrar el cierre diario.");
             } finally {
                 setIsSaving(false);
             }
@@ -1256,16 +1354,16 @@
         return (
         <div className="min-h-screen md:pl-64 flex flex-col text-left">
             {/* HEADER */}
-            <header className="bg-gradient-to-r from-[#075E54] to-[#128C7E] text-white p-3.5 sticky top-0 z-40 shadow-lg flex justify-between items-center">
+            <header className="bg-gradient-to-r from-[#075E54] to-[#128C7E] text-white p-2.5 sm:p-3 sticky top-0 z-40 shadow-lg flex justify-between items-center">
                 <div className="flex items-center gap-2.5">
-                    <div className="w-9 h-9 rounded-xl bg-white/10 flex items-center justify-center shadow-inner">
-                        <Icon name="package" size={20} className="text-[#25D366]"/>
+                    <div className="h-10 w-10 sm:h-11 sm:w-11 rounded-2xl bg-white p-0.5 shadow-md flex items-center justify-center overflow-hidden border border-white/40 shrink-0">
+                        <img src="image.jpg" alt="AustroPolaca" className="h-full w-full object-contain" />
                     </div>
                     <div>
-                        <h1 className="font-black text-base md:text-lg tracking-tight italic uppercase flex items-center gap-1.5 leading-none">
-                            AustroPro <span className="bg-[#25D366] text-[#075E54] text-[9px] font-black px-1.5 py-0.5 rounded-full not-italic">Avena Polaca</span>
+                        <h1 className="font-black text-base sm:text-lg tracking-tight italic uppercase flex items-center gap-1.5 leading-none text-white">
+                            AustroPolaca <span className="bg-[#25D366] text-[#075E54] text-[9px] font-black px-2 py-0.5 rounded-full not-italic tracking-wider shadow-sm">CONTROL</span>
                         </h1>
-                        <p className="text-[10px] text-emerald-100/70 font-medium">Control de Bodega, Pagos & Ganancias</p>
+                        <p className="text-[10px] text-emerald-100/80 font-semibold mt-0.5">Control de Bodega, 5 Rutas, Devoluciones & Ganancias</p>
                     </div>
                 </div>
 
@@ -1287,13 +1385,13 @@
 
             {/* SIDEBAR DESKTOP */}
             <aside className="hidden md:flex fixed left-0 top-0 bottom-0 w-64 bg-white border-r border-slate-200 flex-col p-5 z-30 shadow-sm">
-                <div className="mb-6 mt-2 px-2 flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-[#128C7E] flex items-center justify-center text-white font-black text-sm shadow-md">
-                        A
+                <div className="mb-6 mt-1 px-2 flex items-center gap-2.5 pb-4 border-b border-slate-100">
+                    <div className="h-12 w-12 rounded-2xl bg-white p-0.5 shadow-md flex items-center justify-center overflow-hidden border border-slate-200 shrink-0">
+                        <img src="image.jpg" alt="AustroPolaca" className="h-full w-full object-contain" />
                     </div>
                     <div>
-                        <span className="italic uppercase font-extrabold text-[#075E54] text-xl tracking-tight block leading-tight">Austro Pro</span>
-                        <span className="text-[9px] text-slate-400 font-bold uppercase tracking-wider block">Distribución & Finanzas</span>
+                        <span className="italic uppercase font-black text-[#075E54] text-lg tracking-tight block leading-tight">AustroPolaca</span>
+                        <span className="text-[9px] text-emerald-700 font-black uppercase tracking-widest block">CONTROL</span>
                     </div>
                 </div>
 
@@ -2280,59 +2378,198 @@
                 )}
 
                 {/* ═══════════════════════════════════════════════════════
-                    PESTAÑA 5: RUTAS Y DESPACHOS
+                    PESTAÑA 5: LAS 5 RUTAS OFICIALES (CARGA MAÑANA & CIERRE NOCHE)
                 ═══════════════════════════════════════════════════════ */}
                 {activeTab === 'rutas' && (
                 <div className="space-y-5 fade-in">
-                    <div className="flex justify-between items-center bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                    {/* Header Banner de Rutas */}
+                    <div className="bg-gradient-to-r from-[#075E54] via-[#128C7E] to-teal-700 p-5 rounded-3xl text-white shadow-lg flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                         <div>
-                            <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight italic">
-                                Despachos & Rutas de Vendedores
+                            <div className="flex items-center gap-2 mb-1">
+                                <span className="bg-[#25D366] text-[#075E54] text-[10px] font-black uppercase px-2.5 py-0.5 rounded-full inline-block">
+                                    5 Rutas Oficiales
+                                </span>
+                                <span className="bg-white/20 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                                    Cañar 1 • Cañar 2 • Oriente 1 • Oriente 2 • Cuenca
+                                </span>
+                            </div>
+                            <h2 className="text-xl md:text-2xl font-black uppercase italic tracking-tight flex items-center gap-2">
+                                <Icon name="truck" size={24} className="text-[#25D366]"/>
+                                <span>Control Diario de Rutas & Despachos</span>
                             </h2>
-                            <p className="text-[11px] text-slate-500">Cargas por vendedor, devoluciones y depósitos</p>
+                            <p className="text-xs text-emerald-100/80 mt-1 max-w-xl">
+                                En la mañana se carga el camión con los 4 productos de Avena Polaca y en la noche se realiza el cierre diario con la devolución de lo que restó posventa.
+                            </p>
                         </div>
+
                         <button
                             onClick={() => setModalC(true)}
-                            className="bg-[#128C7E] text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase shadow-md flex items-center gap-2"
+                            className="w-full md:w-auto px-5 py-3 bg-[#25D366] hover:bg-emerald-400 text-[#075E54] rounded-2xl font-black text-xs uppercase shadow-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98]"
                         >
-                            <Icon name="truck" size={16}/>
-                            <span>Nuevo Despacho</span>
+                            <Icon name="sun" size={16}/>
+                            <span>☀️ Iniciar Día / Cargar Ruta (Mañana)</span>
                         </button>
                     </div>
 
+                    {/* Selector / Filtro por las 5 Rutas */}
+                    <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-2 items-center justify-between">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                            <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Filtrar Ruta:</span>
+                            <button
+                                onClick={() => setFiltroRutaSeleccionada('todas')}
+                                className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all ${filtroRutaSeleccionada === 'todas' ? 'bg-[#075E54] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                            >
+                                Todas las Rutas
+                            </button>
+                            {RUTAS_OFICIALES.map(r => (
+                                <button
+                                    key={r.id}
+                                    onClick={() => setFiltroRutaSeleccionada(r.id)}
+                                    className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all ${filtroRutaSeleccionada === r.id ? 'bg-[#128C7E] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    {r.nombre}
+                                </button>
+                            ))}
+                        </div>
+
+                        <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
+                            {cargas.filter(c => filtroRutaSeleccionada === 'todas' || c.rutaId === filtroRutaSeleccionada || c.ruta === filtroRutaSeleccionada).length} Cargas Registradas
+                        </span>
+                    </div>
+
+                    {/* Listado de Rutas */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        {cargas.map(c => (
-                            <Card key={c.id} className={`border-l-4 ${c.estado==='liquidada'?'border-l-slate-400 opacity-90':'border-l-[#25D366]'}`}>
-                                <div className="flex justify-between items-start mb-2">
-                                    <div>
-                                        <span className="text-[9px] font-black uppercase bg-slate-100 text-slate-600 px-2 py-0.5 rounded">{c.fecha}</span>
-                                        <h4 className="font-black text-slate-800 text-sm uppercase mt-1">{c.responsable}</h4>
-                                    </div>
-                                    <button onClick={() => eliminarRegistro('despachos', c.id)} className="text-slate-300 hover:text-red-500">
-                                        <Icon name="trash-2" size={16}/>
-                                    </button>
-                                </div>
-                                <div className="bg-slate-50 p-2.5 rounded-xl border text-center mb-2">
-                                    <p className="text-[9px] text-slate-400 font-bold uppercase">Monto Total Carga</p>
-                                    <p className="text-lg font-black text-[#075E54]">${(c.totalCargado||0).toFixed(2)}</p>
-                                </div>
-                                <div className="flex justify-between items-center pt-2 border-t">
-                                    <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded border">{c.estado}</span>
-                                    {c.estado === 'activa' ? (
-                                        <button onClick={() => setModalLiquidacion(c)} className="bg-[#128C7E] text-white px-3 py-1.5 rounded-xl font-black text-xs uppercase">Liquidar</button>
-                                    ) : (
-                                        <div className="text-right">
-                                            <p className="text-[8px] text-slate-400">Depositado: {c.fechaLiquidacion}</p>
-                                            <p className="text-xs font-black text-[#075E54]">${(c.totalADepositar||0).toFixed(2)}</p>
+                        {cargas
+                            .filter(c => filtroRutaSeleccionada === 'todas' || c.rutaId === filtroRutaSeleccionada || c.ruta === filtroRutaSeleccionada)
+                            .map(c => {
+                                const rutaObj = RUTAS_OFICIALES.find(r => r.id === c.rutaId || r.nombre === c.ruta) || {
+                                    nombre: c.ruta || c.responsable,
+                                    zona: 'Ruta General',
+                                    badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+                                    barColor: 'border-l-[#128C7E]'
+                                };
+
+                                const esActiva = c.estado === 'activa';
+                                const totalUnidsCargadas = (c.items || []).reduce((a, it) => a + (parseInt(it.q) || 0), 0);
+                                const totalUnidsDevueltas = (c.itemsDevueltos || []).reduce((a, it) => a + (parseInt(it.q) || 0), 0);
+                                const totalUnidsVendidas = Math.max(0, totalUnidsCargadas - totalUnidsDevueltas);
+
+                                return (
+                                    <Card key={c.id} className={`border-l-4 ${esActiva ? 'border-l-[#25D366] ring-1 ring-[#25D366]/30' : 'border-l-slate-400 opacity-95'} flex flex-col justify-between space-y-3.5 shadow-sm hover:shadow-md transition-shadow`}>
+                                        <div>
+                                            <div className="flex justify-between items-start mb-2">
+                                                <div>
+                                                    <div className="flex items-center gap-1.5 mb-1">
+                                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${rutaObj.badgeColor}`}>
+                                                            📍 {rutaObj.nombre}
+                                                        </span>
+                                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${esActiva ? 'bg-emerald-100 text-emerald-800 animate-pulse' : 'bg-slate-100 text-slate-600'}`}>
+                                                            {esActiva ? '🚚 EN RUTA (MAÑANA)' : '🌙 CERRADA / LIQUIDADA'}
+                                                        </span>
+                                                        <span className="text-[10px] text-slate-400 font-bold">{c.fecha}</span>
+                                                    </div>
+                                                    <h4 className="font-black text-slate-800 text-sm uppercase italic">
+                                                        Vendedor: {c.responsable}
+                                                    </h4>
+                                                    <p className="text-[10px] text-slate-400 font-medium">{rutaObj.zona}</p>
+                                                </div>
+
+                                                <button
+                                                    onClick={() => eliminarRegistro('despachos', c.id)}
+                                                    className="p-1 text-slate-300 hover:text-red-500 rounded transition-colors"
+                                                    title="Eliminar despacho"
+                                                >
+                                                    <Icon name="trash-2" size={15}/>
+                                                </button>
+                                            </div>
+
+                                            {/* Desglose de los 4 productos */}
+                                            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-xs space-y-1.5">
+                                                <div className="flex justify-between items-center text-[10px] font-black text-slate-600 pb-1 border-b border-slate-200">
+                                                    <span>PRODUCTO (4 PRESENTACIONES)</span>
+                                                    <div className="flex gap-4">
+                                                        <span>CARGA AM</span>
+                                                        {!esActiva && <span>SOBRANTE PM</span>}
+                                                        {!esActiva && <span className="text-emerald-700">VENDIDO</span>}
+                                                    </div>
+                                                </div>
+
+                                                {(c.items || []).map((it, idx) => {
+                                                    const devuelto = (c.itemsDevueltos || []).find(d => d.id === it.id)?.q || 0;
+                                                    const vendido = Math.max(0, it.q - devuelto);
+
+                                                    return (
+                                                        <div key={idx} className="flex justify-between items-center text-[11px] border-b border-slate-100 last:border-0 pb-0.5">
+                                                            <span className="text-slate-700 font-bold truncate max-w-[170px]">
+                                                                {it.nombre?.replace('EMPACADO AVENA POLACA ', '')}
+                                                            </span>
+                                                            <div className="flex gap-4 font-black">
+                                                                <span className="text-blue-700">{it.q} u.</span>
+                                                                {!esActiva && <span className="text-slate-500">{devuelto} u.</span>}
+                                                                {!esActiva && <span className="text-emerald-700 font-extrabold">{vendido} u.</span>}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+
+                                            {/* Resumen financiero */}
+                                            <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 text-center text-xs">
+                                                <div className="bg-blue-50/70 p-2 rounded-xl border border-blue-100">
+                                                    <p className="text-[8px] font-bold text-blue-600 uppercase">Carga Mañana</p>
+                                                    <p className="font-black text-blue-900">${(c.totalCargado || 0).toFixed(2)}</p>
+                                                    <p className="text-[8px] text-blue-500">{totalUnidsCargadas} unids</p>
+                                                </div>
+
+                                                {!esActiva ? (
+                                                    <>
+                                                        <div className="bg-emerald-50/70 p-2 rounded-xl border border-emerald-100">
+                                                            <p className="text-[8px] font-bold text-emerald-600 uppercase">Venta Neta</p>
+                                                            <p className="font-black text-emerald-900">${(c.ventaNeta || 0).toFixed(2)}</p>
+                                                            <p className="text-[8px] text-emerald-600">{totalUnidsVendidas} vendidas</p>
+                                                        </div>
+                                                        <div className="bg-slate-100 p-2 rounded-xl border border-slate-200">
+                                                            <p className="text-[8px] font-bold text-slate-500 uppercase">Depositado</p>
+                                                            <p className="font-black text-slate-800">${(c.totalADepositar || 0).toFixed(2)}</p>
+                                                            <p className="text-[8px] text-slate-400">En caja</p>
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <div className="bg-amber-50 p-2 rounded-xl border border-amber-200 col-span-1 sm:col-span-2 flex items-center justify-center text-amber-800 text-[10px] font-bold">
+                                                        <span>🚚 Camión en distribución en la ruta...</span>
+                                                    </div>
+                                                )}
+                                            </div>
                                         </div>
-                                    )}
-                                </div>
-                            </Card>
-                        ))}
+
+                                        {/* Botón de acción */}
+                                        <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
+                                            {esActiva ? (
+                                                <button
+                                                    onClick={() => abrirModalCierreDiario(c)}
+                                                    className="w-full py-2.5 bg-gradient-to-r from-[#075E54] to-[#128C7E] hover:from-[#064e46] hover:to-[#0f766e] text-white rounded-xl font-black text-xs uppercase shadow-md flex items-center justify-center gap-2 transition-all hover:scale-[1.01]"
+                                                >
+                                                    <Icon name="moon" size={15}/>
+                                                    <span>🌙 Hacer Cierre Diario / Devolución de la Noche</span>
+                                                </button>
+                                            ) : (
+                                                <div className="w-full flex justify-between items-center text-[10px]">
+                                                    <span className="text-emerald-700 font-bold flex items-center gap-1">
+                                                        <Icon name="check-circle-2" size={13}/>
+                                                        <span>Cierre completado el {c.fechaLiquidacion || c.fecha}</span>
+                                                    </span>
+                                                    <span className="font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                                                        {totalUnidsDevueltas} u. devueltas a bodega
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </Card>
+                                );
+                            })}
                     </div>
                 </div>
                 )}
-
                 {/* ═══════════════════════════════════════════════════════
                     PESTAÑA 6: CAJA
                 ═══════════════════════════════════════════════════════ */}
@@ -3251,56 +3488,137 @@
             ═══════════════════════════════════════════════════════ */}
             {modalC && (
             <div className="fixed inset-0 bg-slate-900/80 z-[200] overflow-y-auto backdrop-blur-sm p-2 sm:p-4 flex items-end sm:items-center justify-center">
-                <div className="bg-white w-full max-w-lg rounded-3xl flex flex-col shadow-2xl overflow-hidden fade-in text-xs">
-                    <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                        <h3 className="font-black uppercase text-xs text-slate-600 tracking-wider">Despachar Producto a Vendedor</h3>
-                        <button onClick={() => setModalC(false)} className="p-1 text-slate-400"><Icon name="x" size={18}/></button>
+                <div className="bg-white w-full max-w-xl rounded-3xl flex flex-col shadow-2xl overflow-hidden fade-in text-xs">
+                    <div className="p-4 border-b flex justify-between items-center bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-100">
+                        <div>
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className="text-[9px] font-black text-emerald-800 uppercase bg-emerald-200 px-2 py-0.5 rounded-md">
+                                    Carga de la Mañana (AM)
+                                </span>
+                                <span className="text-[9px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
+                                    Arrancar el Día
+                                </span>
+                            </div>
+                            <h3 className="font-black uppercase text-xs text-slate-800 tracking-wider">
+                                Despacho a Ruta — Avena Polaca
+                            </h3>
+                        </div>
+                        <button onClick={() => setModalC(false)} className="p-1 text-slate-400 hover:text-slate-600"><Icon name="x" size={18}/></button>
                     </div>
+
                     <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
+                        {/* Selector de las 5 Rutas */}
                         <div>
-                            <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Vendedor Responsable</label>
-                            <select
-                                className="w-full p-2.5 bg-slate-50 rounded-xl font-black text-xs border border-slate-200 outline-none text-[#128C7E]"
-                                value={formC.ven}
-                                onChange={e => setFormC({...formC, ven: e.target.value})}
-                            >
-                                <option value="">Selecciona vendedor...</option>
-                                {VENDEDORES.map((v, i) => <option key={i} value={v}>{v}</option>)}
-                            </select>
+                            <label className="text-[9px] font-black text-slate-700 uppercase block mb-1.5 flex items-center justify-between">
+                                <span>Seleccionar Ruta Oficial (5 Rutas) *</span>
+                                <span className="text-[8px] text-emerald-700 font-bold">Obligatorio</span>
+                            </label>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {RUTAS_OFICIALES.map(r => (
+                                    <button
+                                        type="button"
+                                        key={r.id}
+                                        onClick={() => setFormC({...formC, ruta: r.id})}
+                                        className={`p-2.5 rounded-xl border text-left transition-all ${formC.ruta === r.id ? 'border-[#128C7E] bg-emerald-50/80 shadow-sm ring-1 ring-[#128C7E]' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}
+                                    >
+                                        <p className="font-black text-slate-800 text-xs uppercase flex items-center justify-between">
+                                            <span>{r.nombre}</span>
+                                            {formC.ruta === r.id && <Icon name="check" size={12} className="text-[#128C7E]"/>}
+                                        </p>
+                                        <p className="text-[9px] text-slate-400 truncate mt-0.5">{r.zona}</p>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
 
-                        <div>
-                            <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Fecha de Salida</label>
-                            <input
-                                type="date"
-                                className="w-full p-2.5 bg-slate-50 rounded-xl font-bold text-xs border outline-none"
-                                value={formC.fecha}
-                                onChange={e => setFormC({...formC, fecha: e.target.value})}
-                            />
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Vendedor / Responsable</label>
+                                <select
+                                    className="w-full p-2.5 bg-slate-50 rounded-xl font-black text-xs border border-slate-200 outline-none text-[#128C7E]"
+                                    value={formC.ven}
+                                    onChange={e => setFormC({...formC, ven: e.target.value})}
+                                >
+                                    {VENDEDORES.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Fecha de Salida</label>
+                                <input
+                                    type="date"
+                                    className="w-full p-2.5 bg-slate-50 rounded-xl font-bold text-xs border outline-none"
+                                    value={formC.fecha}
+                                    onChange={e => setFormC({...formC, fecha: e.target.value})}
+                                />
+                            </div>
                         </div>
 
-                        <div className="space-y-2">
-                            {formC.items.map((it, idx) => (
-                                <div key={it.id} className="flex justify-between items-center p-2.5 bg-slate-50 rounded-xl border">
-                                    <span className="text-xs font-bold text-slate-700 uppercase flex-1 pr-2">{it.nombre}</span>
-                                    <input
-                                        type="number"
-                                        placeholder="0"
-                                        className="w-20 p-2 text-center font-black bg-white rounded-lg border outline-none text-[#128C7E]"
-                                        value={it.q || ''}
-                                        onChange={e => {
-                                            const ni = [...formC.items];
-                                            ni[idx].q = parseInt(e.target.value) || 0;
-                                            setFormC({...formC, items: ni});
-                                        }}
-                                    />
-                                </div>
-                            ))}
+                        {/* Detalle de Carga AM de los 4 productos */}
+                        <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                            <div className="flex justify-between items-center mb-2">
+                                <p className="text-[10px] font-black text-slate-700 uppercase">
+                                    Carga de Productos al Camión (Los 4 Ítems):
+                                </p>
+                                <span className="text-[9px] font-black text-[#128C7E] bg-emerald-100 px-2 py-0.5 rounded">
+                                    {formC.items.reduce((a,it)=>a+(parseInt(it.q)||0),0)} Unidades Totales
+                                </span>
+                            </div>
+
+                            <div className="space-y-2">
+                                {formC.items.map((it, idx) => (
+                                    <div key={it.id} className="bg-white p-2.5 rounded-xl border border-slate-200 flex justify-between items-center gap-2">
+                                        <div className="flex-1">
+                                            <span className="text-[8px] font-black bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded mr-1">
+                                                {it.codigo}
+                                            </span>
+                                            <span className="font-black text-slate-800 text-[11px] uppercase">
+                                                {it.nombre?.replace('EMPACADO AVENA POLACA ', '')}
+                                            </span>
+                                            <span className="text-[9px] text-slate-400 block font-medium">PVD: ${it.pvd.toFixed(4)}</span>
+                                        </div>
+
+                                        <div className="w-28 flex items-center gap-1">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                placeholder="0"
+                                                className="w-full p-2 text-center font-black bg-slate-50 rounded-xl border border-slate-200 outline-none text-[#128C7E] text-xs focus:border-[#128C7E]"
+                                                value={it.q || ''}
+                                                onChange={e => {
+                                                    const ni = [...formC.items];
+                                                    ni[idx].q = parseInt(e.target.value) || 0;
+                                                    setFormC({...formC, items: ni});
+                                                }}
+                                            />
+                                            <span className="text-[10px] font-bold text-slate-400">u.</span>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div className="mt-3 pt-2 border-t border-slate-200 flex justify-between items-center text-xs">
+                                <span className="text-slate-500 font-bold">Valor Total a Cobrar (PVD):</span>
+                                <span className="font-black text-sm text-[#075E54]">
+                                    ${formC.items.reduce((a,b)=>a+((parseInt(b.q)||0)*b.pvd), 0).toFixed(2)}
+                                </span>
+                            </div>
                         </div>
                     </div>
-                    <div className="p-4 border-t bg-slate-50">
-                        <button onClick={guardarCarga} disabled={isSaving} className="w-full bg-[#128C7E] text-white py-3 rounded-xl font-black uppercase text-xs shadow-md">
-                            Confirmar Despacho 🚛
+
+                    <div className="p-4 border-t bg-slate-50 flex gap-2">
+                        <button
+                            onClick={() => setModalC(false)}
+                            className="w-1/3 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-black text-xs uppercase text-slate-700"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={guardarCarga}
+                            disabled={isSaving}
+                            className={`flex-1 py-3 rounded-xl ${isSaving ? 'bg-slate-400' : 'bg-[#128C7E] hover:bg-[#075E54]'} text-white font-black text-xs uppercase shadow-md transition-all`}
+                        >
+                            {isSaving ? 'Despachando...' : 'Confirmar Carga AM (Sale a Ruta) 🚛'}
                         </button>
                     </div>
                 </div>
@@ -3308,58 +3626,157 @@
             )}
 
             {/* ═══════════════════════════════════════════════════════
-                MODAL: LIQUIDAR RUTA
+                MODAL: CIERRE DIARIO DE LA NOCHE (DEVOLUCIÓN POSVENTA Y LIQUIDACIÓN)
             ═══════════════════════════════════════════════════════ */}
             {modalLiquidacion && (
             <div className="fixed inset-0 bg-slate-900/80 z-[200] overflow-y-auto backdrop-blur-sm p-2 sm:p-4 flex items-end sm:items-center justify-center">
-                <div className="bg-white w-full max-w-lg rounded-3xl flex flex-col shadow-2xl overflow-hidden fade-in text-xs">
-                    <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                        <h3 className="font-black uppercase text-xs text-slate-600 tracking-wider">Liquidar Ruta — {modalLiquidacion.responsable}</h3>
-                        <button onClick={() => setModalLiquidacion(null)} className="p-1 text-slate-400"><Icon name="x" size={18}/></button>
+                <div className="bg-white w-full max-w-xl rounded-3xl flex flex-col shadow-2xl overflow-hidden fade-in text-xs">
+                    <div className="p-4 border-b flex justify-between items-center bg-gradient-to-r from-slate-100 to-indigo-50 border-slate-200">
+                        <div>
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                                <span className="text-[9px] font-black text-indigo-900 uppercase bg-indigo-100 px-2 py-0.5 rounded-md">
+                                    🌙 Cierre Diario de la Noche
+                                </span>
+                                <span className="text-[9px] font-black text-[#075E54] bg-emerald-100 px-2 py-0.5 rounded-md">
+                                    {modalLiquidacion.ruta || 'Ruta'}
+                                </span>
+                            </div>
+                            <h3 className="font-black uppercase text-xs text-slate-800 tracking-wider">
+                                Devolución Posventa & Depósito — {modalLiquidacion.responsable}
+                            </h3>
+                        </div>
+                        <button onClick={() => setModalLiquidacion(null)} className="p-1 text-slate-400 hover:text-slate-600"><Icon name="x" size={18}/></button>
                     </div>
+
                     <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
-                        <p className="text-[10px] font-black text-slate-400 uppercase">Unidades Devueltas por el Vendedor</p>
-                        <div className="space-y-2">
-                            {formLiq.itemsDevueltos.map((it, idx) => (
-                                <div key={it.id} className="flex justify-between items-center p-2 bg-slate-50 rounded-xl border">
-                                    <span className="text-xs font-bold text-slate-700 uppercase flex-1 pr-2">{it.nombre}</span>
-                                    <input
-                                        type="number"
-                                        placeholder="0"
-                                        className="w-20 p-2 text-center font-black bg-white rounded-lg border outline-none text-[#128C7E]"
-                                        value={it.q || ''}
-                                        onChange={e => {
-                                            const ni = [...formLiq.itemsDevueltos];
-                                            ni[idx].q = parseInt(e.target.value) || 0;
-                                            setFormLiq({...formLiq, itemsDevueltos: ni});
-                                        }}
-                                    />
-                                </div>
-                            ))}
+                        {/* Explicación amigable */}
+                        <div className="bg-indigo-50/70 p-3 rounded-2xl border border-indigo-100 text-indigo-950">
+                            <p className="font-black text-xs uppercase flex items-center gap-1.5">
+                                <Icon name="package-check" size={15} className="text-indigo-600"/>
+                                <span>Devolución de lo que restó posventa diaria</span>
+                            </p>
+                            <p className="text-[10px] text-indigo-800 mt-0.5">
+                                Ingresa la cantidad de unidades que sobraron y no se vendieron. El sistema calculará automáticamente las unidades vendidas y regresará los sobrantes a bodega.
+                            </p>
                         </div>
 
-                        <p className="text-[10px] font-black text-slate-400 uppercase border-t pt-3">Gastos del Día en Ruta ($)</p>
-                        <div className="grid grid-cols-2 gap-2">
-                            {Object.keys(formLiq.gastos).map(k => (
-                                <div key={k}>
-                                    <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">{k}</label>
-                                    <input
-                                        type="number"
-                                        step="0.01"
-                                        placeholder="0.00"
-                                        className="w-full p-2 bg-slate-50 rounded-xl font-black text-xs border outline-none text-[#128C7E]"
-                                        value={formLiq.gastos[k]}
-                                        onChange={e => setFormLiq({
-                                            ...formLiq,
-                                            gastos: { ...formLiq.gastos, [k]: parseFloat(e.target.value) || 0 }
-                                        })}
-                                    />
+                        {/* Detalle de unidades devueltas vs cargadas */}
+                        <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2">
+                            <div className="flex justify-between items-center text-[10px] font-black text-slate-600 pb-1 border-b">
+                                <span>PRODUCTO COMERCIAL</span>
+                                <div className="flex gap-4">
+                                    <span className="text-blue-700">CARGÓ AM</span>
+                                    <span className="text-rose-600">SOBRÓ PM</span>
+                                    <span className="text-emerald-700">VENDIÓ</span>
                                 </div>
-                            ))}
+                            </div>
+
+                            {formLiq.itemsDevueltos.map((it, idx) => {
+                                const dev = parseInt(it.q) || 0;
+                                const carg = parseInt(it.qCargado) || 0;
+                                const vend = Math.max(0, carg - dev);
+
+                                return (
+                                    <div key={it.id} className="bg-white p-2.5 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                        <div className="flex-1">
+                                            <span className="font-black text-slate-800 text-[11px] uppercase">
+                                                {it.nombre?.replace('EMPACADO AVENA POLACA ', '')}
+                                            </span>
+                                            <span className="text-[9px] text-slate-400 block font-medium">PVD: ${it.pvd.toFixed(4)}</span>
+                                        </div>
+
+                                        <div className="flex items-center gap-3">
+                                            <span className="text-xs font-black text-blue-700 w-12 text-center bg-blue-50 py-1 rounded">
+                                                {carg} u.
+                                            </span>
+
+                                            <div className="w-24">
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max={carg}
+                                                    placeholder="0"
+                                                    className="w-full p-1.5 text-center font-black bg-slate-50 rounded-lg border outline-none text-rose-700 text-xs focus:border-rose-500"
+                                                    value={it.q || ''}
+                                                    onChange={e => {
+                                                        const ni = [...formLiq.itemsDevueltos];
+                                                        ni[idx].q = Math.max(0, Math.min(carg, parseInt(e.target.value) || 0));
+                                                        setFormLiq({...formLiq, itemsDevueltos: ni});
+                                                    }}
+                                                />
+                                            </div>
+
+                                            <span className="text-xs font-black text-emerald-800 w-12 text-center bg-emerald-50 py-1 rounded">
+                                                {vend} u.
+                                            </span>
+                                        </div>
+                                    </div>
+                                );
+                            })}
                         </div>
+
+                        {/* Gastos del Día en Ruta */}
+                        <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
+                            <p className="text-[10px] font-black text-slate-700 uppercase mb-2">Gastos Realizados en Ruta ($):</p>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                {[
+                                    { key: 'combustible', label: 'Combustible' },
+                                    { key: 'alimentacion', label: 'Alimentación' },
+                                    { key: 'viaticos', label: 'Peajes / Viáticos' },
+                                    { key: 'hospedaje', label: 'Hospedaje' },
+                                    { key: 'mantenimiento', label: 'Mantenimiento' },
+                                    { key: 'otros', label: 'Otros Gastos' },
+                                ].map(g => (
+                                    <div key={g.key} className="bg-white p-2 rounded-xl border border-slate-200">
+                                        <label className="text-[8px] font-black text-slate-500 uppercase block mb-0.5">{g.label}</label>
+                                        <input
+                                            type="number"
+                                            step="0.01"
+                                            placeholder="0.00"
+                                            className="w-full p-1.5 bg-slate-50 rounded-lg font-black text-xs border outline-none text-[#128C7E]"
+                                            value={formLiq.gastos[g.key] || ''}
+                                            onChange={e => setFormLiq({
+                                                ...formLiq,
+                                                gastos: { ...formLiq.gastos, [g.key]: parseFloat(e.target.value) || 0 }
+                                            })}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* Resumen Final de Cierre */}
+                        {(() => {
+                            let ventaCalculada = 0;
+                            formLiq.itemsDevueltos.forEach(it => {
+                                const dev = parseInt(it.q) || 0;
+                                const carg = parseInt(it.qCargado) || 0;
+                                const vend = Math.max(0, carg - dev);
+                                ventaCalculada += vend * (it.pvd || 0);
+                            });
+                            const gastosTot = Object.values(formLiq.gastos).reduce((a, b) => a + (parseFloat(b) || 0), 0);
+                            const totalDepositar = Math.max(0, ventaCalculada - gastosTot);
+
+                            return (
+                                <div className="p-3 bg-gradient-to-r from-emerald-50 to-teal-50 rounded-2xl border border-emerald-200 grid grid-cols-3 gap-2 text-center">
+                                    <div>
+                                        <p className="text-[8px] font-bold text-slate-400 uppercase">Venta Neta</p>
+                                        <p className="font-black text-slate-800 text-sm">${ventaCalculada.toFixed(2)}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[8px] font-bold text-orange-500 uppercase">Gastos Ruta</p>
+                                        <p className="font-black text-orange-600 text-sm">-${gastosTot.toFixed(2)}</p>
+                                    </div>
+                                    <div className="bg-white p-1 rounded-xl shadow-sm border border-emerald-300">
+                                        <p className="text-[8px] font-black text-emerald-700 uppercase">Total a Depositar</p>
+                                        <p className="font-black text-emerald-800 text-base">${totalDepositar.toFixed(2)}</p>
+                                    </div>
+                                </div>
+                            );
+                        })()}
 
                         <div>
-                            <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Fecha de Liquidación / Depósito</label>
+                            <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Fecha de Liquidación / Cierre</label>
                             <input
                                 type="date"
                                 className="w-full p-2.5 bg-slate-50 rounded-xl font-bold text-xs border outline-none"
@@ -3368,18 +3785,25 @@
                             />
                         </div>
                     </div>
-                    <div className="p-4 border-t bg-slate-50">
-                        <button onClick={registrarLiquidacion} disabled={isSaving} className="w-full bg-[#128C7E] text-white py-3 rounded-xl font-black uppercase text-xs shadow-md">
-                            Confirmar Liquidación
+
+                    <div className="p-4 border-t bg-slate-50 flex gap-2">
+                        <button
+                            onClick={() => setModalLiquidacion(null)}
+                            className="w-1/3 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-black text-xs uppercase text-slate-700"
+                        >
+                            Cancelar
+                        </button>
+                        <button
+                            onClick={registrarLiquidacion}
+                            disabled={isSaving}
+                            className={`flex-1 py-3 rounded-xl ${isSaving ? 'bg-slate-400' : 'bg-[#075E54] hover:bg-[#05433c]'} text-white font-black text-xs uppercase shadow-md transition-all`}
+                        >
+                            {isSaving ? 'Liquidando...' : 'Confirmar Cierre Diario de la Noche ✅'}
                         </button>
                     </div>
                 </div>
             </div>
             )}
-
-            {/* ═══════════════════════════════════════════════════════
-                MODAL: MOVIMIENTO MANUAL DE CAJA
-            ═══════════════════════════════════════════════════════ */}
             {modalContabilidad && (
             <div className="fixed inset-0 bg-slate-900/80 z-[200] overflow-y-auto backdrop-blur-sm p-2 sm:p-4 flex items-end sm:items-center justify-center">
                 <div className="bg-white w-full max-w-md rounded-3xl flex flex-col shadow-2xl overflow-hidden fade-in text-xs">
