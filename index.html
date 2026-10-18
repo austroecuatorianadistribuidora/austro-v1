@@ -31,6 +31,8 @@
     <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <!-- SheetJS (xlsx) para exportación nativa de Excel (.xlsx) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
     <!-- Firebase SDK v11.6.1 -->
     <script type="module">
@@ -136,6 +138,63 @@
         .tab-btn-inactive:hover {
             background: #f8fafc;
             color: #0f172a;
+        }
+    
+        /* ── ONE UI 9 & LIVE TILES ── */
+        .live-tile {
+            position: relative;
+            overflow: hidden;
+            border-radius: 28px;
+            transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            cursor: pointer;
+        }
+        .live-tile:hover {
+            transform: translateY(-6px) scale(1.02);
+            box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.28), 0 0 25px -5px rgba(37, 211, 102, 0.25);
+        }
+        .live-tile:active {
+            transform: scale(0.98);
+        }
+        .live-tile::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -150%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+            transform: skewX(-25deg);
+            transition: left 0.75s ease-in-out;
+            pointer-events: none;
+        }
+        .live-tile:hover::after {
+            left: 200%;
+        }
+        @keyframes gentleFloat {
+            0%, 100% { transform: translateY(0px); }
+            50% { transform: translateY(-5px); }
+        }
+        .animate-float {
+            animation: gentleFloat 3.5s ease-in-out infinite;
+        }
+        @keyframes liveGlow {
+            0%, 100% { opacity: 0.9; transform: scale(1); }
+            50% { opacity: 0.3; transform: scale(1.25); }
+        }
+        .live-glow {
+            animation: liveGlow 2s ease-in-out infinite;
+        }
+        .oneui-squircle {
+            border-radius: 28px;
+        }
+        .oneui-card {
+            border-radius: 24px;
+            background: rgba(255, 255, 255, 0.92);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(226, 232, 240, 0.85);
+            box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
         }
     </style>
 </head>
@@ -275,7 +334,7 @@
 
     function App() {
         const [user, setUser] = useState(null);
-        const [activeTab, setActiveTab] = useState('bodega'); // Iniciar en Bodega o Ganancias
+        const [activeTab, setActiveTab] = useState('inicio'); // Iniciar en Bodega o Ganancias
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [successMsg, setSuccessMsg] = useState(null);
@@ -313,8 +372,17 @@
         const [installPrompt, setInstallPrompt]         = useState(null);
         const [isAppInstalled, setIsAppInstalled]       = useState(false);
         const [showInstallModal, setShowInstallModal]   = useState(false);
-
         const today = new Date().toISOString().split('T')[0];
+
+        // Estados para Reporte Excel (Diario, Semanal, Mensual, Rango)
+        const [filtroReporteRango, setFiltroReporteRango] = useState('hoy');
+        const [fechaReporteDesde, setFechaReporteDesde]   = useState(today);
+        const [fechaReporteHasta, setFechaReporteHasta]   = useState(today);
+        const [isExportingExcel, setIsExportingExcel]     = useState(false);
+        // Estados para Balance Mensual (Gastos vs Utilidad y Préstamo $120 50/50)
+        const [mesBalance, setMesBalance]                 = useState(today.substring(0, 7));
+        const [incluirArranque, setIncluirArranque]       = useState(true);
+        const [montoArranque, setMontoArranque]           = useState(120);
 
         // FORM FACTURA DE COMPRA CON LOS 4 ITEMS DETALLADOS PARA ENTRADA A BODEGA
         const [formDocCompra, setFormDocCompra] = useState({
@@ -1390,15 +1458,351 @@
             document.body.removeChild(a);
         };
 
+        
+        // Helper para fechas de reportes (Diario, Semanal, Mensual)
+        const cambiarRangoReporte = (tipo) => {
+            setFiltroReporteRango(tipo);
+            if (tipo === 'hoy') {
+                setFechaReporteDesde(today);
+                setFechaReporteHasta(today);
+            } else if (tipo === 'semana') {
+                const d = new Date(today);
+                const day = d.getDay();
+                const diff = d.getDate() - day + (day === 0 ? -6 : 1);
+                const monday = new Date(d.setDate(diff));
+                setFechaReporteDesde(monday.toISOString().split('T')[0]);
+                setFechaReporteHasta(today);
+            } else if (tipo === 'mes') {
+                setFechaReporteDesde(today.substring(0, 7) + '-01');
+                setFechaReporteHasta(today);
+            }
+        };
+
+        // ── CÁLCULO DE BALANCE MENSUAL: GASTOS VS UTILIDADES Y CRÉDITO $120 (50% PRÉSTAMO / 50% CRÉDITO) ──
+        const balanceMensualData = useMemo(() => {
+            const cargasMes = cargas.filter(c => {
+                const f = c.fechaLiquidacion || c.fecha || '';
+                return c.estado === 'liquidada' && f.startsWith(mesBalance);
+            });
+
+            let ventaBruta = 0;
+            let costoMercaderia = 0;
+            let totalUnidadesVendidas = 0;
+            let gastosRutas = 0;
+            let totalCargadoUnids = 0;
+            let totalDevueltoUnids = 0;
+
+            cargasMes.forEach(c => {
+                gastosRutas += (parseFloat(c.gastosTotal) || 0);
+                const devs = c.itemsDevueltos || [];
+                (c.items || []).forEach(it => {
+                    const dev = devs.find(d => d.id === it.id)?.q || 0;
+                    const vend = Math.max(0, it.q - dev);
+                    totalCargadoUnids += (it.q || 0);
+                    totalDevueltoUnids += dev;
+                    totalUnidadesVendidas += vend;
+                    ventaBruta += vend * it.pvd;
+                    costoMercaderia += vend * it.costo;
+                });
+            });
+
+            const utilidadBruta = ventaBruta - costoMercaderia;
+
+            // Gastos operativos generales del mes
+            const gastosOperativos = docsGasto
+                .filter(g => (g.fecha || '').startsWith(mesBalance))
+                .reduce((a, g) => a + (parseFloat(g.monto) || 0), 0);
+
+            // Devoluciones del mes (100% pérdida)
+            const devolucionesMes = docsDevolucion.filter(d => (d.fecha || '').startsWith(mesBalance));
+            const perdidaDevoluciones = devolucionesMes.reduce((a, d) => a + (parseFloat(d.perdidaTotal) || 0), 0);
+            const unidadesPerdidasDevolucion = devolucionesMes.reduce((a, d) => a + (parseInt(d.totalUnidades) || 0), 0);
+
+            // Cuota inicial de arranque: $120 (50% préstamo = $60, 50% crédito = $60)
+            const cuotaPrestamo = incluirArranque ? (montoArranque * 0.5) : 0;
+            const cuotaCredito  = incluirArranque ? (montoArranque * 0.5) : 0;
+            const totalCuotaArranque = cuotaPrestamo + cuotaCredito;
+
+            const totalGastosYDeducciones = gastosRutas + gastosOperativos + perdidaDevoluciones + totalCuotaArranque;
+            const utilidadNetaReal = utilidadBruta - totalGastosYDeducciones;
+            const margenNetoPorc = ventaBruta > 0 ? ((utilidadNetaReal / ventaBruta) * 100) : 0;
+
+            return {
+                mes: mesBalance,
+                cargasMesCount: cargasMes.length,
+                totalCargadoUnids,
+                totalDevueltoUnids,
+                totalUnidadesVendidas,
+                ventaBruta,
+                costoMercaderia,
+                utilidadBruta,
+                gastosRutas,
+                gastosOperativos,
+                perdidaDevoluciones,
+                unidadesPerdidasDevolucion,
+                cuotaPrestamo,
+                cuotaCredito,
+                totalCuotaArranque,
+                totalGastosYDeducciones,
+                utilidadNetaReal,
+                margenNetoPorc
+            };
+        }, [cargas, docsGasto, docsDevolucion, mesBalance, incluirArranque, montoArranque]);
+
+        // ── FILTRO CONSOLIDADO PARA REPORTES EXCEL (DIARIO / SEMANAL / MENSUAL / RANGO) ──
+        const reporteExcelConsolidado = useMemo(() => {
+            const desde = fechaReporteDesde;
+            const hasta = fechaReporteHasta;
+
+            const cargasPeriodo = cargas.filter(c => {
+                const f = c.fechaLiquidacion || c.fecha || '';
+                return f >= desde && f <= hasta;
+            });
+
+            const gastosPeriodo = docsGasto.filter(g => (g.fecha || '') >= desde && (g.fecha || '') <= hasta);
+            const devsPeriodo   = docsDevolucion.filter(d => (d.fecha || '') >= desde && (d.fecha || '') <= hasta);
+
+            let unidsCargadas = 0;
+            let unidsSobrantes = 0;
+            let unidsVendidas = 0;
+            let totalVenta = 0;
+            let totalCosto = 0;
+            let gastosRutaTotal = 0;
+
+            const resumenPorProducto = PRODUCTOS_POLACA.map(p => {
+                let carg = 0, sob = 0, vend = 0;
+                cargasPeriodo.forEach(c => {
+                    const item = c.items?.find(it => it.id === p.id);
+                    const dev = c.itemsDevueltos?.find(it => it.id === p.id);
+                    const qCarg = item ? item.q : 0;
+                    const qSob  = dev ? dev.q : 0;
+                    carg += qCarg;
+                    sob  += qSob;
+                    vend += Math.max(0, qCarg - qSob);
+                });
+                return {
+                    ...p,
+                    carg,
+                    sob,
+                    vend,
+                    ventaTotal: vend * p.pvd,
+                    costoTotal: vend * p.costo,
+                    utilidadBruta: vend * (p.pvd - p.costo)
+                };
+            });
+
+            resumenPorProducto.forEach(r => {
+                unidsCargadas += r.carg;
+                unidsSobrantes += r.sob;
+                unidsVendidas += r.vend;
+                totalVenta += r.ventaTotal;
+                totalCosto += r.costoTotal;
+            });
+
+            cargasPeriodo.forEach(c => {
+                gastosRutaTotal += (parseFloat(c.gastosTotal) || 0);
+            });
+
+            const utilidadBruta = totalVenta - totalCosto;
+            const gastosGenerales = gastosPeriodo.reduce((a, g) => a + (parseFloat(g.monto) || 0), 0);
+            const perdidaDevs = devsPeriodo.reduce((a, d) => a + (parseFloat(d.perdidaTotal) || 0), 0);
+            const unidsBajasDevs = devsPeriodo.reduce((a, d) => a + (parseInt(d.totalUnidades) || 0), 0);
+
+            // Financiamiento proporcional si abarca el mes
+            const cuotaArranque = incluirArranque ? (montoArranque) : 0;
+            const utilidadNeta = utilidadBruta - gastosRutaTotal - gastosGenerales - perdidaDevs;
+
+            return {
+                desde,
+                hasta,
+                cargasPeriodo,
+                gastosPeriodo,
+                devsPeriodo,
+                unidsCargadas,
+                unidsSobrantes,
+                unidsVendidas,
+                totalVenta,
+                totalCosto,
+                utilidadBruta,
+                gastosRutaTotal,
+                gastosGenerales,
+                perdidaDevs,
+                unidsBajasDevs,
+                cuotaArranque,
+                utilidadNeta,
+                resumenPorProducto
+            };
+        }, [cargas, docsGasto, docsDevolucion, fechaReporteDesde, fechaReporteHasta, incluirArranque, montoArranque]);
+
+        // ── FUNCIÓN EXPORTAR REPORTE COMPLETO EN EXCEL (.XLSX) ──
+        const descargarReporteExcel = () => {
+            setIsExportingExcel(true);
+            try {
+                const rep = reporteExcelConsolidado;
+                const nombreArchivo = `Reporte_AustroPolaca_${filtroReporteRango}_${rep.desde}_al_${rep.hasta}.xlsx`;
+
+                if (typeof XLSX !== 'undefined') {
+                    const wb = XLSX.utils.book_new();
+
+                    // Hoja 1: Resumen Ejecutivo
+                    const resumenRows = [
+                        ["AUSTROPOLACA CONTROL - REPORTE DE ACTIVIDAD OPERATIVA Y FINANCIERA"],
+                        ["Distribuidora Exclusiva de Avena Polaca (Lacteos La Polaca Gustalac S.A.)"],
+                        ["Rango de Fechas:", `Desde ${rep.desde} hasta ${rep.hasta}`, "Tipo de Rango:", filtroReporteRango.toUpperCase()],
+                        ["Fecha de Emisión:", new Date().toLocaleString(), "Moneda:", "USD ($)"],
+                        [],
+                        ["INDICADOR PRINCIPAL", "CANTIDAD / VALOR", "DETALLE OPERATIVO"],
+                        ["Total Unidades Cargadas (AM)", rep.unidsCargadas, "Salidas a rutas matutinas"],
+                        ["Total Unidades Sobrantes Devueltas (PM)", rep.unidsSobrantes, "Retorno de rutas posventa en buen estado"],
+                        ["Total Unidades Vendidas en Rutas", rep.unidsVendidas, "Unidades comercializadas efectivas"],
+                        ["Total Unidades Bajas (Devoluciones Clientes)", rep.unidsBajasDevs, "Pérdida 100% asumida (averías/caducados)"],
+                        [],
+                        ["Venta Bruta Total (PVD)", `$${rep.totalVenta.toFixed(2)}`, "Ingreso bruto facturado"],
+                        ["Costo de Mercadería Vendida", `$${rep.totalCosto.toFixed(2)}`, "Costo de compra a Avena Polaca"],
+                        ["Utilidad Bruta de Distribución", `$${rep.utilidadBruta.toFixed(2)}`, "Margen de comercialización (+17%)"],
+                        [],
+                        ["(-) Gastos Operativos en Rutas", `$${rep.gastosRutaTotal.toFixed(2)}`, "Combustible, viáticos, comidas en ruta"],
+                        ["(-) Gastos Operativos Generales", `$${rep.gastosGenerales.toFixed(2)}`, "Mantenimiento, hospedaje, facturas de gasto"],
+                        ["(-) Pérdidas por Devolución de Clientes (100%)", `$${rep.perdidaDevs.toFixed(2)}`, "Bajas reconocidas al 100%"],
+                        ["(-) Cuota Financiamiento Inicial ($120)", `$${rep.cuotaArranque.toFixed(2)}`, "50% Préstamo Arranque ($60) + 50% Crédito Comercial ($60)"],
+                        [],
+                        ["(=) UTILIDAD NETA REAL DEL PERÍODO", `$${(rep.utilidadNeta - (rep.cuotaArranque || 0)).toFixed(2)}`, "Ganancia líquida real disponible"]
+                    ];
+                    const wsResumen = XLSX.utils.aoa_to_sheet(resumenRows);
+                    XLSX.utils.book_append_sheet(wb, wsResumen, "Resumen Ejecutivo");
+
+                    // Hoja 2: Ventas por Producto
+                    const prodHeaders = [["CÓDIGO", "PRESENTACIÓN", "UNIDS CARGADAS", "SOBRANTES PM", "UNIDS VENDIDAS", "P. VENTA (PVD)", "VENTA TOTAL ($)", "P. COSTO", "COSTO TOTAL ($)", "UTILIDAD BRUTA ($)"]];
+                    const prodRows = rep.resumenPorProducto.map(p => [
+                        p.codigo,
+                        p.nombre,
+                        p.carg,
+                        p.sob,
+                        p.vend,
+                        p.pvd,
+                        parseFloat(p.ventaTotal.toFixed(2)),
+                        p.costo,
+                        parseFloat(p.costoTotal.toFixed(2)),
+                        parseFloat(p.utilidadBruta.toFixed(2))
+                    ]);
+                    const wsProd = XLSX.utils.aoa_to_sheet([...prodHeaders, ...prodRows]);
+                    XLSX.utils.book_append_sheet(wb, wsProd, "Ventas por Producto");
+
+                    // Hoja 3: Rutas y Despachos
+                    const rutaHeaders = [["FECHA", "RUTA OFICIAL", "VENDEDOR", "ESTADO", "CARGA 165G", "CARGA 340G", "CARGA 500G", "CARGA 1000G", "TOTAL CARGADO ($)", "SOBRANTE 165G", "SOBRANTE 340G", "SOBRANTE 500G", "SOBRANTE 1000G", "UNIDS VENDIDAS", "VENTA TOTAL ($)", "GASTOS RUTA ($)", "DEPÓSITO NETO ($)"]];
+                    const rutaRows = rep.cargasPeriodo.map(c => {
+                        const items = c.items || [];
+                        const devs = c.itemsDevueltos || [];
+                        const q165 = items.find(i=>i.id==='p1')?.q || 0;
+                        const q340 = items.find(i=>i.id==='p2')?.q || 0;
+                        const q500 = items.find(i=>i.id==='p3')?.q || 0;
+                        const q1000 = items.find(i=>i.id==='p4')?.q || 0;
+                        const d165 = devs.find(i=>i.id==='p1')?.q || 0;
+                        const d340 = devs.find(i=>i.id==='p2')?.q || 0;
+                        const d500 = devs.find(i=>i.id==='p3')?.q || 0;
+                        const d1000 = devs.find(i=>i.id==='p4')?.q || 0;
+                        const vendidas = Math.max(0, (q165-d165) + (q340-d340) + (q500-d500) + (q1000-d1000));
+                        return [
+                            c.fechaLiquidacion || c.fecha,
+                            c.rutaNombre || c.rutaId || 'Ruta General',
+                            c.vendedor,
+                            c.estado === 'liquidada' ? 'Cierre Realizado' : 'En Ruta (AM)',
+                            q165, q340, q500, q1000,
+                            parseFloat((c.totalPvd || 0).toFixed(2)),
+                            d165, d340, d500, d1000,
+                            vendidas,
+                            parseFloat((c.ventaTotalReal || 0).toFixed(2)),
+                            parseFloat((c.gastosTotal || 0).toFixed(2)),
+                            parseFloat((c.totalADepositar || 0).toFixed(2))
+                        ];
+                    });
+                    const wsRutas = XLSX.utils.aoa_to_sheet([...rutaHeaders, ...rutaRows]);
+                    XLSX.utils.book_append_sheet(wb, wsRutas, "Rutas y Despachos");
+
+                    // Hoja 4: Gastos Operativos
+                    const gastoHeaders = [["FECHA", "CATEGORÍA", "SUBCATEGORÍA", "DESCRIPCIÓN", "PROVEEDOR / LOCAL", "MONTO ($)", "FORMA DE PAGO"]];
+                    const gastoRows = rep.gastosPeriodo.map(g => [
+                        g.fecha,
+                        g.categoria,
+                        g.subcategoria || '-',
+                        g.descripcion,
+                        g.proveedor || '-',
+                        parseFloat((g.monto || 0).toFixed(2)),
+                        g.formaPago || 'Efectivo'
+                    ]);
+                    const wsGastos = XLSX.utils.aoa_to_sheet([...gastoHeaders, ...gastoRows]);
+                    XLSX.utils.book_append_sheet(wb, wsGastos, "Gastos Operativos");
+
+                    // Hoja 5: Devoluciones Clientes (100% Pérdida)
+                    const devHeaders = [["FECHA", "CLIENTE / TIENDA", "VENDEDOR", "MOTIVO", "165G", "340G", "500G", "1000G", "TOTAL UNIDS", "VALOR PÉRDIDA ($)", "PÉRDIDA ASUMIDA %"]];
+                    const devRows = rep.devsPeriodo.map(d => {
+                        const its = d.items || [];
+                        return [
+                            d.fecha,
+                            d.cliente,
+                            d.vendedor,
+                            d.motivo,
+                            its.find(i=>i.id==='p1')?.q || 0,
+                            its.find(i=>i.id==='p2')?.q || 0,
+                            its.find(i=>i.id==='p3')?.q || 0,
+                            its.find(i=>i.id==='p4')?.q || 0,
+                            d.totalUnidades,
+                            parseFloat((d.perdidaTotal || 0).toFixed(2)),
+                            '100% PÉRDIDA'
+                        ];
+                    });
+                    const wsDevs = XLSX.utils.aoa_to_sheet([...devHeaders, ...devRows]);
+                    XLSX.utils.book_append_sheet(wb, wsDevs, "Devoluciones Clientes");
+
+                    XLSX.writeFile(wb, nombreArchivo);
+                    mostrarAviso("¡Reporte Excel descargado con éxito!");
+                } else {
+                    // Fallback a CSV si XLSX no está disponible
+                    let csv = "\uFEFF";
+                    csv += "AUSTROPOLACA CONTROL - REPORTE DE ACTIVIDAD\n";
+                    csv += `Periodo,${rep.desde} al ${rep.hasta}\n\n`;
+                    csv += "INDICADOR,VALOR\n";
+                    csv += `Unidades Cargadas AM,${rep.unidsCargadas}\n`;
+                    csv += `Unidades Sobrantes PM,${rep.unidsSobrantes}\n`;
+                    csv += `Unidades Vendidas,${rep.unidsVendidas}\n`;
+                    csv += `Venta Bruta Total,${rep.totalVenta.toFixed(2)}\n`;
+                    csv += `Costo Mercaderia,${rep.totalCosto.toFixed(2)}\n`;
+                    csv += `Utilidad Bruta,${rep.utilidadBruta.toFixed(2)}\n`;
+                    csv += `Gastos en Ruta,${rep.gastosRutaTotal.toFixed(2)}\n`;
+                    csv += `Gastos Generales,${rep.gastosGenerales.toFixed(2)}\n`;
+                    csv += `Perdida Devoluciones,${rep.perdidaDevs.toFixed(2)}\n`;
+                    csv += `Cuota Arranque $120,${rep.cuotaArranque.toFixed(2)}\n`;
+                    csv += `UTILIDAD NETA REAL,${(rep.utilidadNeta - rep.cuotaArranque).toFixed(2)}\n`;
+
+                    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                    const a = document.createElement("a");
+                    a.href = URL.createObjectURL(blob);
+                    a.download = nombreArchivo.replace('.xlsx', '.csv');
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    mostrarAviso("¡Reporte descargado en formato CSV!");
+                }
+            } catch(e) {
+                console.error("Error al exportar:", e);
+                setError("Error al generar el archivo Excel: " + (e.message || e));
+            } finally {
+                setIsExportingExcel(false);
+            }
+        };
+
         // Pestañas de navegación
         const navItems = [
-            { id: 'bodega',       icon: 'package',      label: 'Bodega',       badge: totalesBodega.stockTotal + ' u.' },
-            { id: 'devoluciones', icon: 'rotate-ccw',   label: 'Devoluciones', badge: totalesDevoluciones.totalUnidades > 0 ? (totalesDevoluciones.totalUnidades + ' u.') : undefined },
-            { id: 'compras',      icon: 'shopping-bag', label: 'Compras',      badge: docsCompra.length },
-            { id: 'ganancias',    icon: 'trending-up',  label: 'Ganancias',    badge: '$' + totalesGanancias.gNeta.toFixed(0) },
-            { id: 'gastos',       icon: 'receipt',      label: 'Gastos',       badge: docsGasto.length },
-            { id: 'rutas',        icon: 'truck',        label: 'Rutas' },
-            { id: 'caja',         icon: 'wallet',       label: 'Caja' },
+            { id: 'inicio',         icon: 'layout-grid',      label: 'Inicio',            badge: 'LIVE' },
+            { id: 'bodega',         icon: 'package',          label: 'Bodega',            badge: totalesBodega.stockTotal + ' u.' },
+            { id: 'rutas',          icon: 'truck',            label: '5 Rutas',           badge: '5' },
+            { id: 'balanceMensual', icon: 'scale',            label: 'Balance Mensual',   badge: 'Mes' },
+            { id: 'reportesExcel',  icon: 'file-spreadsheet', label: 'Reportes Excel',    badge: 'XLSX' },
+            { id: 'devoluciones',   icon: 'rotate-ccw',       label: 'Devoluciones',      badge: totalesDevoluciones.totalUnidades > 0 ? (totalesDevoluciones.totalUnidades + ' u.') : undefined },
+            { id: 'compras',        icon: 'shopping-bag',     label: 'Compras',           badge: docsCompra.length },
+            { id: 'ganancias',      icon: 'trending-up',      label: 'Ganancias',         badge: '$' + totalesGanancias.gNeta.toFixed(0) },
+            { id: 'gastos',         icon: 'receipt',          label: 'Gastos',            badge: docsGasto.length },
+            { id: 'caja',           icon: 'wallet',           label: 'Caja' },
         ];
 
         if (loading) {
@@ -1536,6 +1940,312 @@
                         </div>
                         <button onClick={() => setError(null)} className="text-red-400 hover:text-red-700"><Icon name="x" size={14}/></button>
                     </div>
+                )}
+
+                {/* ═══════════════════════════════════════════════════════
+                    PESTAÑA 0: INICIO (MOSAICOS ANIMADOS ONE UI 9 + WINDOWS 8 LIVE TILES)
+                ═══════════════════════════════════════════════════════ */}
+                {activeTab === 'inicio' && (
+                <div className="space-y-6 fade-in">
+                    {/* BIENVENIDA Y ESTADO EN VIVO */}
+                    <div className="oneui-card p-5 sm:p-6 flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border border-slate-200/90 shadow-sm">
+                        <div className="flex items-center gap-3.5">
+                            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-[22px] bg-white p-1 shadow-md border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
+                                <img src="image.jpg" alt="AustroPolaca Mascot" className="h-full w-full object-contain" />
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight italic uppercase">
+                                        AustroPolaca <span className="bg-[#25D366] text-[#075E54] text-xs font-black px-2.5 py-0.5 rounded-full not-italic shadow-sm">CONTROL</span>
+                                    </h2>
+                                    <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10px] font-black px-2.5 py-1 rounded-full border border-emerald-200">
+                                        <span className="w-2 h-2 rounded-full bg-[#25D366] live-glow"></span>
+                                        LIVE HUB
+                                    </span>
+                                </div>
+                                <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                                    Panel Interactivo de Bodega, 5 Rutas, Devoluciones y Balance Financiero
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* ACCESOS RÁPIDOS SUPERIORES */}
+                        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                            <button
+                                onClick={() => { setActiveTab('rutas'); setModalC(true); }}
+                                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 bg-[#075E54] hover:bg-[#128C7E] text-white text-xs font-black rounded-xl shadow-sm transition-all"
+                            >
+                                <Icon name="sun" size={14} className="text-amber-300"/>
+                                <span>Cargar AM</span>
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('rutas')}
+                                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 bg-slate-800 hover:bg-slate-900 text-white text-xs font-black rounded-xl shadow-sm transition-all"
+                            >
+                                <Icon name="moon" size={14} className="text-blue-300"/>
+                                <span>Cierre PM</span>
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('reportesExcel')}
+                                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-black rounded-xl shadow-sm transition-all"
+                            >
+                                <Icon name="file-spreadsheet" size={14}/>
+                                <span>Reportes Excel</span>
+                            </button>
+                            <button
+                                onClick={() => setActiveTab('balanceMensual')}
+                                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 bg-purple-600 hover:bg-purple-700 text-white text-xs font-black rounded-xl shadow-sm transition-all"
+                            >
+                                <Icon name="scale" size={14}/>
+                                <span>Balance Mes</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* MOSAICOS ANIMADOS EN VIVO (ONE UI 9 + WINDOWS 8 LIVE TILES) */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5">
+
+                        {/* TILE 1: BODEGA Y STOCK (WIDE LIVE TILE col-span-2) */}
+                        <div
+                            onClick={() => setActiveTab('bodega')}
+                            className="live-tile bg-gradient-to-br from-[#075E54] via-[#0D7A6D] to-[#128C7E] text-white p-5 sm:p-6 shadow-xl col-span-1 sm:col-span-2 flex flex-col justify-between min-h-[220px]"
+                        >
+                            <div className="flex justify-between items-start">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-inner animate-float">
+                                        <Icon name="package" size={26} className="text-white"/>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] uppercase font-black tracking-widest text-emerald-200 block">Módulo Central</span>
+                                        <h3 className="text-lg font-black italic tracking-tight uppercase">Bodega & Inventario</h3>
+                                    </div>
+                                </div>
+                                <span className="flex items-center gap-1 bg-white/20 text-white text-[10px] font-black px-2.5 py-1 rounded-full backdrop-blur-sm border border-white/20">
+                                    <span className="w-2 h-2 rounded-full bg-[#25D366] live-glow"></span>
+                                    EN VIVO
+                                </span>
+                            </div>
+
+                            <div className="my-3">
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-3xl sm:text-4xl font-black tracking-tight">{totalesBodega.stockTotal.toLocaleString()}</span>
+                                    <span className="text-xs uppercase font-extrabold text-emerald-100">unids disponibles</span>
+                                </div>
+                                <p className="text-xs text-emerald-100/90 mt-1 font-medium">
+                                    Inversión: <strong>${totalesBodega.costoTotal.toFixed(2)}</strong> • Venta Proyectada: <strong>${totalesBodega.ventaTotal.toFixed(2)}</strong> (+17%)
+                                </p>
+                            </div>
+
+                            <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-white/15">
+                                <div className="flex items-center gap-1.5 text-[10px] font-extrabold">
+                                    <span className="bg-black/20 px-2 py-0.5 rounded-md">165G: {stockPorProducto[0]?.stock || 0}u</span>
+                                    <span className="bg-black/20 px-2 py-0.5 rounded-md">340G: {stockPorProducto[1]?.stock || 0}u</span>
+                                    <span className="bg-black/20 px-2 py-0.5 rounded-md">500G: {stockPorProducto[2]?.stock || 0}u</span>
+                                    <span className="bg-black/20 px-2 py-0.5 rounded-md">1000G: {stockPorProducto[3]?.stock || 0}u</span>
+                                </div>
+                                <span className="text-xs font-black text-emerald-200 flex items-center gap-1 group-hover:translate-x-1 transition-transform">
+                                    Abrir Bodega ➔
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* TILE 2: 5 RUTAS DE DISTRIBUCIÓN (WIDE LIVE TILE col-span-2) */}
+                        <div
+                            onClick={() => setActiveTab('rutas')}
+                            className="live-tile bg-gradient-to-br from-blue-700 via-indigo-700 to-sky-800 text-white p-5 sm:p-6 shadow-xl col-span-1 sm:col-span-2 flex flex-col justify-between min-h-[220px]"
+                        >
+                            <div className="flex justify-between items-start">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-inner animate-float">
+                                        <Icon name="truck" size={26} className="text-white"/>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] uppercase font-black tracking-widest text-sky-200 block">Distribución Diaria</span>
+                                        <h3 className="text-lg font-black italic tracking-tight uppercase">5 Rutas Oficiales</h3>
+                                    </div>
+                                </div>
+                                <span className="bg-white/20 text-white text-[10px] font-black px-2.5 py-1 rounded-full backdrop-blur-sm border border-white/20">
+                                    5 ZONAS
+                                </span>
+                            </div>
+
+                            <div className="my-2">
+                                <p className="text-xs text-sky-100 font-semibold mb-2">Selección matutina y cierre nocturno:</p>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {Object.entries(RUTAS_OFICIALES).map(([k, r]) => (
+                                        <span key={k} className="text-[10px] font-extrabold px-2.5 py-1 rounded-xl bg-black/25 backdrop-blur-sm border border-white/20">
+                                            {r.nombre}
+                                        </span>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-3 border-t border-white/15">
+                                <span className="text-xs text-sky-100 font-bold">
+                                    {cargas.length} despachos registrados
+                                </span>
+                                <span className="text-xs font-black text-sky-200 flex items-center gap-1">
+                                    Gestionar Rutas ➔
+                                </span>
+                            </div>
+                        </div>
+
+                        {/* TILE 3: BALANCE MENSUAL (GASTOS VS UTILIDADES Y $120 ARRANQUE) */}
+                        <div
+                            onClick={() => setActiveTab('balanceMensual')}
+                            className="live-tile bg-gradient-to-br from-purple-800 via-violet-800 to-indigo-950 text-white p-5 sm:p-6 shadow-xl col-span-1 sm:col-span-2 flex flex-col justify-between min-h-[210px]"
+                        >
+                            <div className="flex justify-between items-start">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-inner animate-float">
+                                        <Icon name="scale" size={26} className="text-white"/>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] uppercase font-black tracking-widest text-purple-200 block">Análisis Financiero</span>
+                                        <h3 className="text-lg font-black italic tracking-tight uppercase">Balance Mensual</h3>
+                                    </div>
+                                </div>
+                                <span className="bg-purple-500/40 text-purple-100 text-[10px] font-black px-2.5 py-1 rounded-full border border-purple-300/30">
+                                    {mesBalance}
+                                </span>
+                            </div>
+
+                            <div className="my-2">
+                                <div className="flex items-baseline gap-2">
+                                    <span className="text-2xl sm:text-3xl font-black">
+                                        ${balanceMensualData.utilidadNetaReal.toFixed(2)}
+                                    </span>
+                                    <span className="text-xs font-bold text-purple-200">Utilidad Neta Real</span>
+                                </div>
+                                <p className="text-xs text-purple-200/90 mt-1 font-medium">
+                                    Utilidad Bruta: <strong>${balanceMensualData.utilidadBruta.toFixed(2)}</strong> • Gastos + Bajas: <strong>${(balanceMensualData.gastosRutas + balanceMensualData.gastosOperativos + balanceMensualData.perdidaDevoluciones).toFixed(2)}</strong>
+                                </p>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-3 border-t border-white/15">
+                                <span className="text-[10px] font-extrabold bg-purple-900/60 px-2.5 py-1 rounded-lg border border-purple-400/30">
+                                    💳 Deduce cuota $120 (50% préstamo + 50% crédito)
+                                </span>
+                                <span className="text-xs font-black text-purple-200">Ver Balance ➔</span>
+                            </div>
+                        </div>
+
+                        {/* TILE 4: REPORTES EXCEL NATIVOS (.XLSX) */}
+                        <div
+                            onClick={() => setActiveTab('reportesExcel')}
+                            className="live-tile bg-gradient-to-br from-emerald-700 via-teal-700 to-emerald-950 text-white p-5 sm:p-6 shadow-xl col-span-1 sm:col-span-2 flex flex-col justify-between min-h-[210px]"
+                        >
+                            <div className="flex justify-between items-start">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-white/20 backdrop-blur-md flex items-center justify-center shadow-inner animate-float">
+                                        <Icon name="file-spreadsheet" size={26} className="text-white"/>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] uppercase font-black tracking-widest text-emerald-200 block">Exportación Ejecutiva</span>
+                                        <h3 className="text-lg font-black italic tracking-tight uppercase">Reportes en Excel</h3>
+                                    </div>
+                                </div>
+                                <span className="bg-emerald-500/40 text-emerald-100 text-[10px] font-black px-2.5 py-1 rounded-full border border-emerald-300/30">
+                                    .XLSX MULTI-HOJA
+                                </span>
+                            </div>
+
+                            <div className="my-2">
+                                <p className="text-xs text-emerald-100 font-semibold">Descarga con rango de fechas elegible:</p>
+                                <div className="flex items-center gap-2 mt-2">
+                                    <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-black/25">Diario (Hoy)</span>
+                                    <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-black/25">Semanal</span>
+                                    <span className="text-xs font-extrabold px-2.5 py-1 rounded-lg bg-black/25">Mensual</span>
+                                </div>
+                                <p className="text-[11px] text-emerald-200 mt-1.5">
+                                    Incluye: cargas AM, ventas, gastos de ruta, sobrantes PM y devoluciones 100%.
+                                </p>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-3 border-t border-white/15">
+                                <span className="text-xs text-emerald-200 font-bold">Formato Excel nativo</span>
+                                <span className="text-xs font-black text-emerald-200">Generar Reporte ➔</span>
+                            </div>
+                        </div>
+
+                        {/* TILE 5: GANANCIAS DIARIAS (SQUARE TILE col-span-1) */}
+                        <div
+                            onClick={() => setActiveTab('ganancias')}
+                            className="live-tile bg-gradient-to-br from-amber-600 via-orange-600 to-amber-700 text-white p-5 shadow-lg flex flex-col justify-between min-h-[175px]"
+                        >
+                            <div className="flex justify-between items-start">
+                                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                                    <Icon name="trending-up" size={20}/>
+                                </div>
+                                <span className="text-[9px] font-black bg-black/20 px-2 py-0.5 rounded-full">+17% PVD</span>
+                            </div>
+                            <div>
+                                <span className="text-xs uppercase font-extrabold text-amber-200 block">Ganancias</span>
+                                <span className="text-2xl font-black">+${totalesGanancias.gNeta.toFixed(2)}</span>
+                                <p className="text-[10px] text-amber-100 mt-0.5">Utilidad calculada al vender</p>
+                            </div>
+                            <span className="text-[10px] font-black text-amber-200 text-right">Ver Ganancias ➔</span>
+                        </div>
+
+                        {/* TILE 6: DEVOLUCIONES CLIENTES (100% PÉRDIDA) (SQUARE TILE col-span-1) */}
+                        <div
+                            onClick={() => setActiveTab('devoluciones')}
+                            className="live-tile bg-gradient-to-br from-rose-700 via-red-600 to-pink-800 text-white p-5 shadow-lg flex flex-col justify-between min-h-[175px]"
+                        >
+                            <div className="flex justify-between items-start">
+                                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                                    <Icon name="rotate-ccw" size={20}/>
+                                </div>
+                                <span className="text-[9px] font-black bg-black/20 px-2 py-0.5 rounded-full">100% PÉRDIDA</span>
+                            </div>
+                            <div>
+                                <span className="text-xs uppercase font-extrabold text-rose-200 block">Devoluciones</span>
+                                <span className="text-2xl font-black">{totalesDevoluciones.totalUnidades} u.</span>
+                                <p className="text-[10px] text-rose-100 mt-0.5">Bajas: -${totalesDevoluciones.totalPerdida.toFixed(2)}</p>
+                            </div>
+                            <span className="text-[10px] font-black text-rose-200 text-right">Ver Devoluciones ➔</span>
+                        </div>
+
+                        {/* TILE 7: FACTURAS DE COMPRA (SQUARE TILE col-span-1) */}
+                        <div
+                            onClick={() => setActiveTab('compras')}
+                            className="live-tile bg-gradient-to-br from-slate-800 via-slate-700 to-slate-900 text-white p-5 shadow-lg flex flex-col justify-between min-h-[175px]"
+                        >
+                            <div className="flex justify-between items-start">
+                                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                                    <Icon name="shopping-bag" size={20}/>
+                                </div>
+                                <span className="text-[9px] font-black bg-white/20 px-2 py-0.5 rounded-full">GUSTALAC S.A.</span>
+                            </div>
+                            <div>
+                                <span className="text-xs uppercase font-extrabold text-slate-300 block">Compras</span>
+                                <span className="text-2xl font-black">{docsCompra.length}</span>
+                                <p className="text-[10px] text-slate-300 mt-0.5">Facturas de stock ingresadas</p>
+                            </div>
+                            <span className="text-[10px] font-black text-slate-300 text-right">Ver Compras ➔</span>
+                        </div>
+
+                        {/* TILE 8: GASTOS OPERATIVOS (SQUARE TILE col-span-1) */}
+                        <div
+                            onClick={() => setActiveTab('gastos')}
+                            className="live-tile bg-gradient-to-br from-cyan-800 via-teal-800 to-slate-800 text-white p-5 shadow-lg flex flex-col justify-between min-h-[175px]"
+                        >
+                            <div className="flex justify-between items-start">
+                                <div className="w-10 h-10 rounded-xl bg-white/20 flex items-center justify-center">
+                                    <Icon name="receipt" size={20}/>
+                                </div>
+                                <span className="text-[9px] font-black bg-black/20 px-2 py-0.5 rounded-full">OPERATIVOS</span>
+                            </div>
+                            <div>
+                                <span className="text-xs uppercase font-extrabold text-cyan-200 block">Gastos</span>
+                                <span className="text-2xl font-black">{docsGasto.length}</span>
+                                <p className="text-[10px] text-cyan-100 mt-0.5">Combustible, Comida, Hotel</p>
+                            </div>
+                            <span className="text-[10px] font-black text-cyan-200 text-right">Ver Gastos ➔</span>
+                        </div>
+
+                    </div>
+                </div>
                 )}
 
                 {/* ═══════════════════════════════════════════════════════
@@ -2725,6 +3435,387 @@
                     </div>
                 </div>
                 )}
+            
+                {/* ═══════════════════════════════════════════════════════
+                    PESTAÑA: BALANCE MENSUAL: GASTOS VS. UTILIDADES Y PRÉSTAMO $120
+                ═══════════════════════════════════════════════════════ */}
+                {activeTab === 'balanceMensual' && (
+                <div className="space-y-6 fade-in">
+                    {/* ENCABEZADO Y SELECTOR DE MES */}
+                    <div className="oneui-card p-5 sm:p-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border border-slate-200/90 shadow-sm">
+                        <div className="flex items-center gap-3">
+                            <span className="bg-purple-100 text-purple-700 p-3 rounded-2xl shadow-sm">
+                                <Icon name="scale" size={26}/>
+                            </span>
+                            <div>
+                                <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight italic">
+                                    Balance Mensual: Gastos vs. Utilidades
+                                </h2>
+                                <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                                    Cálculo exacto de utilidad real considerando gastos de ruta, devoluciones (100%) y cuota de arranque ($120.00).
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* SELECTOR DE MES */}
+                        <div className="flex items-center gap-2 w-full sm:w-auto">
+                            <label className="text-xs font-bold text-slate-600">Mes a Evaluar:</label>
+                            <input
+                                type="month"
+                                value={mesBalance}
+                                onChange={e => setMesBalance(e.target.value)}
+                                className="p-2 bg-slate-50 border border-slate-300 rounded-xl font-bold text-xs text-slate-700 focus:ring-2 focus:ring-purple-500 outline-none"
+                            />
+                        </div>
+                    </div>
+
+                    {/* BANNER PRINCIPAL: UTILIDAD NETA REAL LÍQUIDA */}
+                    <div className={`p-6 rounded-[28px] text-white shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-6 ${balanceMensualData.utilidadNetaReal >= 0 ? 'bg-gradient-to-r from-[#075E54] via-[#0D7A6D] to-[#128C7E]' : 'bg-gradient-to-r from-red-700 via-rose-700 to-pink-800'}`}>
+                        <div>
+                            <div className="flex items-center gap-2 mb-2">
+                                <span className="bg-white/20 px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider backdrop-blur-sm">
+                                    {balanceMensualData.utilidadNetaReal >= 0 ? '✓ SUPERÁVIT NETO' : '⚠ DÉFICIT OPERATIVO'}
+                                </span>
+                                <span className="text-xs font-bold text-white/80">Período: {mesBalance}</span>
+                            </div>
+                            <span className="text-xs uppercase font-extrabold text-white/80 block">Utilidad Neta Real Líquida Disponible:</span>
+                            <div className="flex items-baseline gap-3 mt-1">
+                                <span className="text-4xl sm:text-5xl font-black tracking-tight">
+                                    ${balanceMensualData.utilidadNetaReal.toFixed(2)}
+                                </span>
+                                <span className="text-sm font-bold bg-white/20 px-2.5 py-0.5 rounded-lg">
+                                    Margen Neto: {balanceMensualData.margenNetoPorc.toFixed(1)}%
+                                </span>
+                            </div>
+                        </div>
+
+                        <div className="bg-white/10 backdrop-blur-md p-4 rounded-2xl border border-white/20 max-w-sm text-xs space-y-1.5">
+                            <div className="flex justify-between font-semibold">
+                                <span>Utilidad Bruta Ventas:</span>
+                                <strong>+${balanceMensualData.utilidadBruta.toFixed(2)}</strong>
+                            </div>
+                            <div className="flex justify-between text-white/90">
+                                <span>(-) Gastos Operativos Totales:</span>
+                                <strong>-${(balanceMensualData.gastosRutas + balanceMensualData.gastosOperativos).toFixed(2)}</strong>
+                            </div>
+                            <div className="flex justify-between text-white/90">
+                                <span>(-) Bajas por Devoluciones (100%):</span>
+                                <strong>-${balanceMensualData.perdidaDevoluciones.toFixed(2)}</strong>
+                            </div>
+                            <div className="flex justify-between text-white/90">
+                                <span>(-) Cuota Arranque ($120):</span>
+                                <strong>-${balanceMensualData.totalCuotaArranque.toFixed(2)}</strong>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* TARJETAS DE DESGLOSE RÁPIDO */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="oneui-card p-5 border-l-4 border-blue-500 shadow-sm">
+                            <span className="text-[10px] font-black uppercase text-slate-400">1. Ventas Totales Mes</span>
+                            <p className="text-2xl font-black text-slate-800 mt-1">${balanceMensualData.ventaBruta.toFixed(2)}</p>
+                            <span className="text-[11px] font-bold text-blue-600 mt-0.5 block">{balanceMensualData.totalUnidadesVendidas} u. vendidas</span>
+                        </div>
+                        <div className="oneui-card p-5 border-l-4 border-emerald-500 shadow-sm">
+                            <span className="text-[10px] font-black uppercase text-slate-400">2. Margen Bruto Distribuidor</span>
+                            <p className="text-2xl font-black text-emerald-700 mt-1">+${balanceMensualData.utilidadBruta.toFixed(2)}</p>
+                            <span className="text-[11px] font-bold text-slate-500 mt-0.5 block">Markup +17% sobre costo</span>
+                        </div>
+                        <div className="oneui-card p-5 border-l-4 border-amber-500 shadow-sm">
+                            <span className="text-[10px] font-black uppercase text-slate-400">3. Gastos y Deducciones</span>
+                            <p className="text-2xl font-black text-amber-600 mt-1">-${balanceMensualData.totalGastosYDeducciones.toFixed(2)}</p>
+                            <span className="text-[11px] font-bold text-slate-500 mt-0.5 block">Rutas, Bajas y Arranque $120</span>
+                        </div>
+                        <div className="oneui-card p-5 border-l-4 border-purple-500 shadow-sm">
+                            <span className="text-[10px] font-black uppercase text-slate-400">4. Ganancia Neta Real</span>
+                            <p className={`text-2xl font-black mt-1 ${balanceMensualData.utilidadNetaReal >= 0 ? 'text-[#075E54]' : 'text-red-600'}`}>
+                                ${balanceMensualData.utilidadNetaReal.toFixed(2)}
+                            </p>
+                            <span className="text-[11px] font-bold text-purple-700 mt-0.5 block">Lo que queda en bolsillo</span>
+                        </div>
+                    </div>
+
+                    {/* TARJETA DESTACADA: FINANCIAMIENTO DE ARRANQUE ($120.00: 50% PRÉSTAMO / 50% CRÉDITO) */}
+                    <div className="oneui-card p-6 border-2 border-purple-200 bg-gradient-to-br from-purple-50/70 to-white shadow-sm">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-purple-100">
+                            <div className="flex items-center gap-3">
+                                <div className="w-12 h-12 rounded-2xl bg-purple-600 text-white flex items-center justify-center shadow-md">
+                                    <Icon name="landmark" size={24}/>
+                                </div>
+                                <div>
+                                    <h3 className="font-black text-slate-800 text-base uppercase tracking-tight">
+                                        Financiamiento de Arranque / Factura Inicial ($120.00)
+                                    </h3>
+                                    <p className="text-xs text-purple-700 font-semibold">
+                                        Estructura 50% Préstamo de Arranque + 50% Crédito Comercial para Factura Inicial
+                                    </p>
+                                </div>
+                            </div>
+
+                            <label className="flex items-center gap-2 cursor-pointer bg-white px-3.5 py-2 rounded-xl border border-purple-200 shadow-sm">
+                                <input
+                                    type="checkbox"
+                                    checked={incluirArranque}
+                                    onChange={e => setIncluirArranque(e.target.checked)}
+                                    className="w-4 h-4 text-purple-600 rounded focus:ring-purple-500"
+                                />
+                                <span className="text-xs font-black text-slate-700">Deducir en este mes</span>
+                            </label>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                            {/* 50% PRÉSTAMO PARA ARRANCAR */}
+                            <div className="p-4 bg-white rounded-2xl border border-purple-200 shadow-sm flex items-start gap-3">
+                                <div className="p-2.5 bg-blue-50 text-blue-600 rounded-xl">
+                                    <Icon name="wallet" size={20}/>
+                                </div>
+                                <div className="flex-1">
+                                    <div className="flex justify-between items-center">
+                                        <h4 className="font-extrabold text-xs text-slate-800 uppercase">50% Préstamo para Arrancar</h4>
+                                        <span className="text-base font-black text-blue-700">${balanceMensualData.cuotaPrestamo.toFixed(2)}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                                        Amortización mensual del capital prestado inicialmente para iniciar las operaciones y logística.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* 50% CRÉDITO A FACTURA INICIAL */}
+                            <div className="p-4 bg-white rounded-2xl border border-purple-200 shadow-sm flex items-start gap-3">
+                                <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
+                                    <Icon name="receipt" size={20}/>
+                                </div>
+                                <div className="flex-1">
+                                    <div className="flex justify-between items-center">
+                                        <h4 className="font-extrabold text-xs text-slate-800 uppercase">50% Crédito Factura Inicial</h4>
+                                        <span className="text-base font-black text-emerald-700">${balanceMensualData.cuotaCredito.toFixed(2)}</span>
+                                    </div>
+                                    <p className="text-[11px] text-slate-500 mt-1 leading-relaxed">
+                                        Amortización mensual del crédito otorgado por el proveedor (Avena Polaca) para la compra del stock inicial.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* DESGLOSE DETALLADO DE DEDUCCIONES DEL MES */}
+                    <div className="oneui-card p-6 shadow-sm">
+                        <h3 className="font-black text-slate-800 text-sm uppercase tracking-wider mb-4 flex items-center gap-2">
+                            <Icon name="list" size={18} className="text-[#075E54]"/>
+                            <span>Resumen Consolidado de Deducciones del Mes ({mesBalance})</span>
+                        </h3>
+
+                        <div className="space-y-3">
+                            <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs">
+                                <div className="flex items-center gap-2">
+                                    <Icon name="truck" size={16} className="text-blue-600"/>
+                                    <span className="font-bold text-slate-700">Gastos Operativos en Rutas (Combustible, Viáticos, Comidas)</span>
+                                </div>
+                                <span className="font-black text-red-600">-${balanceMensualData.gastosRutas.toFixed(2)}</span>
+                            </div>
+
+                            <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs">
+                                <div className="flex items-center gap-2">
+                                    <Icon name="receipt" size={16} className="text-cyan-600"/>
+                                    <span className="font-bold text-slate-700">Gastos Generales / Facturas de Gasto (Mantenimiento, Hospedajes)</span>
+                                </div>
+                                <span className="font-black text-red-600">-${balanceMensualData.gastosOperativos.toFixed(2)}</span>
+                            </div>
+
+                            <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs">
+                                <div className="flex items-center gap-2">
+                                    <Icon name="rotate-ccw" size={16} className="text-rose-600"/>
+                                    <span className="font-bold text-slate-700">Pérdida por Devoluciones de Clientes (100% Reconocida como Pérdida)</span>
+                                </div>
+                                <span className="font-black text-red-600">-${balanceMensualData.perdidaDevoluciones.toFixed(2)}</span>
+                            </div>
+
+                            <div className="flex justify-between items-center p-3 bg-purple-50 rounded-xl border border-purple-200 text-xs">
+                                <div className="flex items-center gap-2">
+                                    <Icon name="landmark" size={16} className="text-purple-600"/>
+                                    <span className="font-bold text-purple-900">Cuota Financiamiento Inicial ($120.00: 50% Préstamo + 50% Crédito)</span>
+                                </div>
+                                <span className="font-black text-purple-700">-${balanceMensualData.totalCuotaArranque.toFixed(2)}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                )}
+
+
+                {/* ═══════════════════════════════════════════════════════
+                    PESTAÑA: REPORTES EXCEL NATIVOS (.XLSX) DIARIO, SEMANAL, MENSUAL
+                ═══════════════════════════════════════════════════════ */}
+                {activeTab === 'reportesExcel' && (
+                <div className="space-y-6 fade-in">
+                    {/* ENCABEZADO Y SELECTOR DE RANGO */}
+                    <div className="oneui-card p-5 sm:p-6 border border-slate-200/90 shadow-sm space-y-4">
+                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 pb-4 border-b border-slate-100">
+                            <div className="flex items-center gap-3">
+                                <span className="bg-emerald-100 text-emerald-800 p-3 rounded-2xl shadow-sm">
+                                    <Icon name="file-spreadsheet" size={26}/>
+                                </span>
+                                <div>
+                                    <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight italic">
+                                        Reportes de Actividad en Excel (.xlsx)
+                                    </h2>
+                                    <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                                        Descarga reportes consolidados por día, semana, mes o rango personalizado con cargas AM, ventas, gastos, sobrantes y devoluciones.
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* BOTÓN DESCARGAR EXCEL PRINCIPAL */}
+                            <button
+                                onClick={descargarReporteExcel}
+                                disabled={isExportingExcel}
+                                className="w-full md:w-auto px-6 py-3.5 bg-gradient-to-r from-[#075E54] to-[#25D366] hover:from-[#064e46] hover:to-[#20ba5a] text-white font-black text-xs uppercase tracking-wider rounded-2xl shadow-lg flex items-center justify-center gap-2 transition-all hover:scale-105"
+                            >
+                                <Icon name="download" size={18}/>
+                                <span>{isExportingExcel ? 'Generando Excel...' : 'Descargar Reporte Excel (.xlsx)'}</span>
+                            </button>
+                        </div>
+
+                        {/* SELECTOR DE PRESETS Y FECHAS */}
+                        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-2">
+                                <span className="text-xs font-bold text-slate-500 mr-1">Rango Rápido:</span>
+                                <button
+                                    onClick={() => cambiarRangoReporte('hoy')}
+                                    className={`px-3 py-1.5 rounded-xl font-black text-xs transition-all ${filtroReporteRango === 'hoy' ? 'bg-[#075E54] text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    📅 Diario (Hoy)
+                                </button>
+                                <button
+                                    onClick={() => cambiarRangoReporte('semana')}
+                                    className={`px-3 py-1.5 rounded-xl font-black text-xs transition-all ${filtroReporteRango === 'semana' ? 'bg-[#075E54] text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    📆 Esta Semana
+                                </button>
+                                <button
+                                    onClick={() => cambiarRangoReporte('mes')}
+                                    className={`px-3 py-1.5 rounded-xl font-black text-xs transition-all ${filtroReporteRango === 'mes' ? 'bg-[#075E54] text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    🗓️ Este Mes
+                                </button>
+                                <button
+                                    onClick={() => setFiltroReporteRango('personalizado')}
+                                    className={`px-3 py-1.5 rounded-xl font-black text-xs transition-all ${filtroReporteRango === 'personalizado' ? 'bg-[#075E54] text-white shadow' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+                                >
+                                    🔍 Personalizado
+                                </button>
+                            </div>
+
+                            {/* INPUTS DE FECHAS */}
+                            <div className="flex items-center gap-2 text-xs font-bold w-full lg:w-auto">
+                                <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+                                    <span className="text-slate-400">Desde:</span>
+                                    <input
+                                        type="date"
+                                        value={fechaReporteDesde}
+                                        onChange={e => { setFechaReporteDesde(e.target.value); setFiltroReporteRango('personalizado'); }}
+                                        className="bg-transparent font-bold text-slate-700 outline-none"
+                                    />
+                                </div>
+                                <div className="flex items-center gap-1.5 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200">
+                                    <span className="text-slate-400">Hasta:</span>
+                                    <input
+                                        type="date"
+                                        value={fechaReporteHasta}
+                                        onChange={e => { setFechaReporteHasta(e.target.value); setFiltroReporteRango('personalizado'); }}
+                                        className="bg-transparent font-bold text-slate-700 outline-none"
+                                    />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* TARJETAS RESUMEN DEL PERÍODO SELECCIONADO */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <div className="oneui-card p-5 border-l-4 border-[#075E54] shadow-sm">
+                            <span className="text-[10px] font-black uppercase text-slate-400">Cargas & Sobrantes</span>
+                            <div className="flex items-baseline gap-2 mt-1">
+                                <span className="text-2xl font-black text-slate-800">{reporteExcelConsolidado.unidsCargadas} u.</span>
+                                <span className="text-xs text-slate-500 font-bold">cargadas AM</span>
+                            </div>
+                            <span className="text-[11px] font-bold text-emerald-700 mt-1 block">
+                                {reporteExcelConsolidado.unidsSobrantes} u. devueltas PM • {reporteExcelConsolidado.unidsVendidas} u. vendidas
+                            </span>
+                        </div>
+
+                        <div className="oneui-card p-5 border-l-4 border-blue-500 shadow-sm">
+                            <span className="text-[10px] font-black uppercase text-slate-400">Ventas en el Período</span>
+                            <p className="text-2xl font-black text-blue-700 mt-1">${reporteExcelConsolidado.totalVenta.toFixed(2)}</p>
+                            <span className="text-[11px] font-bold text-slate-500 mt-1 block">
+                                Margen Bruto: <strong>+${reporteExcelConsolidado.utilidadBruta.toFixed(2)}</strong>
+                            </span>
+                        </div>
+
+                        <div className="oneui-card p-5 border-l-4 border-amber-500 shadow-sm">
+                            <span className="text-[10px] font-black uppercase text-slate-400">Gastos & Devoluciones</span>
+                            <p className="text-2xl font-black text-amber-600 mt-1">
+                                -${(reporteExcelConsolidado.gastosRutaTotal + reporteExcelConsolidado.gastosGenerales + reporteExcelConsolidado.perdidaDevs).toFixed(2)}
+                            </p>
+                            <span className="text-[11px] font-bold text-slate-500 mt-1 block">
+                                Rutas: ${reporteExcelConsolidado.gastosRutaTotal.toFixed(2)} • Bajas: ${reporteExcelConsolidado.perdidaDevs.toFixed(2)}
+                            </span>
+                        </div>
+
+                        <div className="oneui-card p-5 border-l-4 border-purple-500 shadow-sm">
+                            <span className="text-[10px] font-black uppercase text-slate-400">Utilidad Neta Real</span>
+                            <p className={`text-2xl font-black mt-1 ${reporteExcelConsolidado.utilidadNeta >= 0 ? 'text-[#075E54]' : 'text-red-600'}`}>
+                                ${reporteExcelConsolidado.utilidadNeta.toFixed(2)}
+                            </p>
+                            <span className="text-[11px] font-bold text-purple-700 mt-1 block">
+                                {reporteExcelConsolidado.cargasPeriodo.length} despachos evaluados
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* VISTA PREVIA DE LAS 4 HOJAS DEL EXCEL */}
+                    <div className="oneui-card p-6 shadow-sm space-y-4">
+                        <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+                            <h3 className="font-black text-slate-800 text-sm uppercase tracking-wider flex items-center gap-2">
+                                <Icon name="table" size={18} className="text-[#075E54]"/>
+                                <span>Vista Previa: Ventas por los 4 Ítems en el Período</span>
+                            </h3>
+                            <span className="text-xs font-bold text-slate-500">
+                                {reporteExcelConsolidado.desde} al {reporteExcelConsolidado.hasta}
+                            </span>
+                        </div>
+
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-xs text-left">
+                                <thead className="bg-[#075E54] text-white uppercase text-[10px] font-black">
+                                    <tr>
+                                        <th className="p-3 rounded-l-xl">Código / Presentación</th>
+                                        <th className="p-3 text-center">Cargó AM</th>
+                                        <th className="p-3 text-center">Devuelto PM</th>
+                                        <th className="p-3 text-center">Vendidas</th>
+                                        <th className="p-3 text-right">PVD</th>
+                                        <th className="p-3 text-right">Venta Total</th>
+                                        <th className="p-3 text-right rounded-r-xl">Utilidad Bruta</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-slate-100 font-semibold">
+                                    {reporteExcelConsolidado.resumenPorProducto.map(p => (
+                                        <tr key={p.id} className="hover:bg-slate-50">
+                                            <td className="p-3 font-bold text-slate-800">{p.codigo} {p.nombre}</td>
+                                            <td className="p-3 text-center text-blue-600 font-black">{p.carg} u.</td>
+                                            <td className="p-3 text-center text-slate-600 font-black">{p.sob} u.</td>
+                                            <td className="p-3 text-center text-emerald-700 font-black">{p.vend} u.</td>
+                                            <td className="p-3 text-right text-slate-600">${p.pvd.toFixed(4)}</td>
+                                            <td className="p-3 text-right font-black text-slate-800">${p.ventaTotal.toFixed(2)}</td>
+                                            <td className="p-3 text-right font-black text-emerald-700">+${p.utilidadBruta.toFixed(2)}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                )}
+
             </main>
 
             {/* BARRA MÓVIL INFERIOR */}
@@ -4113,8 +5204,37 @@
         );
     }
 
+    class ErrorBoundary extends React.Component {
+        constructor(props) {
+            super(props);
+            this.state = { hasError: false, error: null };
+        }
+        static getDerivedStateFromError(error) {
+            return { hasError: true, error };
+        }
+        componentDidCatch(error, errorInfo) {
+            console.error("ErrorBoundary caught an error:", error, errorInfo);
+        }
+        render() {
+            if (this.state.hasError) {
+                return (
+                    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 text-white">
+                        <div className="bg-white text-slate-800 p-6 rounded-3xl max-w-md w-full shadow-2xl text-center">
+                            <h3 className="font-black text-lg text-red-600 mb-2">Aviso de Renderizado</h3>
+                            <p className="text-xs text-slate-600 mb-4">{this.state.error?.message || "Ocurrió un error inesperado al cargar la interfaz"}</p>
+                            <button onClick={() => window.location.reload()} className="px-5 py-2.5 bg-[#075E54] text-white rounded-xl font-black text-xs uppercase shadow">
+                                Recargar Plataforma
+                            </button>
+                        </div>
+                    </div>
+                );
+            }
+            return this.props.children;
+        }
+    }
+
     const root = ReactDOM.createRoot(document.getElementById('root'));
-    root.render(<App/>);
+    root.render(<ErrorBoundary><App/></ErrorBoundary>);
 </script>
 </body>
 </html>
