@@ -418,7 +418,9 @@
         const [modalLiquidacion, setModalLiquidacion]   = useState(null);
         const [modalContabilidad, setModalContabilidad] = useState(false);
         const [modalDocCompra, setModalDocCompra]       = useState(false);
+        const [editandoDocCompraId, setEditandoDocCompraId] = useState(null);
         const [modalDocGasto, setModalDocGasto]         = useState(false);
+        const [editandoDocGastoId, setEditandoDocGastoId] = useState(null);
         const [modalDevolucion, setModalDevolucion]     = useState(false);
         const [filtroDevMotivo, setFiltroDevMotivo]     = useState('todos');
         const [filtroRutaSeleccionada, setFiltroRutaSeleccionada] = useState('todas');
@@ -1089,6 +1091,127 @@
             mostrarAviso("¡Factura Referente #003-102-000005913 cargada con los 4 items!");
         };
 
+        // Abrir modal para nueva factura de compra (resetea edición)
+        const abrirNuevaFacturaCompra = () => {
+            setEditandoDocCompraId(null);
+            setFormDocCompra({
+                fecha: today,
+                fechaVence: today,
+                numFact: '',
+                proveedor: PROVEEDOR_UNICO.razonSocial,
+                rucProveedor: PROVEEDOR_UNICO.ruc,
+                items: PRODUCTOS_POLACA.map(p => ({
+                    id: p.id,
+                    codigo: p.codigo,
+                    nombre: p.nombre,
+                    q: p.qRef,
+                    costo: p.costo,
+                    total: parseFloat((p.qRef * p.costo).toFixed(2))
+                })),
+                subtotal: 2265.41,
+                iva15: 339.81,
+                monto: 2605.22,
+                notas: 'Factura mensual Avena Polaca ingresada a bodega',
+                archivo: null,
+                nombreArchivo: '',
+                tipoArchivo: ''
+            });
+            setModalDocCompra(true);
+        };
+
+        // Iniciar edición de factura de compra existente (permite modificar N° factura, fechas, cantidades o archivo)
+        const iniciarEdicionDocCompra = (factura) => {
+            if (!factura) return;
+            setEditandoDocCompraId(factura.id);
+
+            let itemsCargados = [];
+            if (factura.items && Array.isArray(factura.items) && factura.items.length > 0) {
+                itemsCargados = factura.items.map(it => ({
+                    id: it.id,
+                    codigo: it.codigo || '',
+                    nombre: it.nombre || '',
+                    q: parseFloat(it.q) || 0,
+                    costo: parseFloat(it.costo) || 0,
+                    total: parseFloat(((parseFloat(it.q) || 0) * (parseFloat(it.costo) || 0)).toFixed(2))
+                }));
+            } else {
+                itemsCargados = PRODUCTOS_POLACA.map(p => ({
+                    id: p.id,
+                    codigo: p.codigo,
+                    nombre: p.nombre,
+                    q: p.qRef,
+                    costo: p.costo,
+                    total: parseFloat((p.qRef * p.costo).toFixed(2))
+                }));
+            }
+
+            const subCalc = itemsCargados.reduce((a, it) => a + (it.q * it.costo), 0);
+            const ivaCalc = subCalc * 0.15;
+            const totCalc = subCalc + ivaCalc;
+
+            setFormDocCompra({
+                fecha: factura.fecha || today,
+                fechaVence: factura.fechaVence || factura.fecha || today,
+                numFact: factura.numFact || '',
+                proveedor: factura.proveedor || PROVEEDOR_UNICO.razonSocial,
+                rucProveedor: factura.rucProveedor || PROVEEDOR_UNICO.ruc,
+                items: itemsCargados,
+                subtotal: parseFloat((factura.subtotal !== undefined ? factura.subtotal : subCalc).toFixed(2)),
+                iva15: parseFloat((factura.iva15 !== undefined ? factura.iva15 : ivaCalc).toFixed(2)),
+                monto: parseFloat((factura.monto !== undefined ? factura.monto : totCalc).toFixed(2)),
+                notas: factura.notas || '',
+                archivo: factura.archivo || null,
+                nombreArchivo: factura.nombreArchivo || '',
+                tipoArchivo: factura.tipoArchivo || ''
+            });
+            setModalDocCompra(true);
+        };
+
+        // Abrir modal para nuevo gasto (resetea edición)
+        const abrirNuevoGasto = () => {
+            setEditandoDocGastoId(null);
+            setFormDocGasto({
+                fecha: today,
+                categoria: 'alimentacion',
+                tipoComida: 'almuerzo',
+                valorCombustible: '',
+                tipoMantenimiento: 'cambio_aceite',
+                detalleMantenimiento: '',
+                nombreHotel: '',
+                costoDetalladoHotel: '',
+                monto: '',
+                concepto: '',
+                notas: '',
+                archivo: null,
+                nombreArchivo: '',
+                tipoArchivo: ''
+            });
+            setModalDocGasto(true);
+        };
+
+        // Iniciar edición de factura o comprobante de gasto existente
+        const iniciarEdicionDocGasto = (gasto) => {
+            if (!gasto) return;
+            setEditandoDocGastoId(gasto.id);
+            setFormDocGasto({
+                fecha: gasto.fecha || today,
+                categoria: gasto.categoria || 'alimentacion',
+                tipoComida: gasto.tipoComida || 'almuerzo',
+                valorCombustible: gasto.categoria === 'combustible' ? (gasto.monto ? gasto.monto.toString() : '') : '',
+                tipoMantenimiento: gasto.tipoMantenimiento || 'cambio_aceite',
+                detalleMantenimiento: gasto.detalleMantenimiento || '',
+                nombreHotel: gasto.nombreHotel || '',
+                costoDetalladoHotel: gasto.costoDetalladoHotel || '',
+                monto: gasto.monto ? gasto.monto.toString() : '',
+                concepto: gasto.concepto || '',
+                notas: gasto.notas || '',
+                archivo: gasto.archivo || null,
+                nombreArchivo: gasto.nombreArchivo || '',
+                tipoArchivo: gasto.tipoArchivo || ''
+            });
+            setModalDocGasto(true);
+        };
+
         // ── CONTROL DE BODEGA: STOCK EN TIEMPO REAL CON FACTURAS Y BAJAS POR DEVOLUCIÓN (100% PÉRDIDA) ──
         const stockPorProducto = useMemo(() => PRODUCTOS_POLACA.map(p => {
             // Unidades ingresadas por facturas de compra
@@ -1544,7 +1667,7 @@
         // ── ACCIONES FIREBASE ──
         const col = n => FB.collection(window.appDb, 'artifacts', window.appId, 'public', 'data', n);
 
-        // Guardar Factura de Compra de Avena Polaca (Ingresa los 4 items de inmediato a Bodega)
+        // Guardar o Actualizar Factura de Compra de Avena Polaca
         const guardarDocCompra = async () => {
             if (!user || isSaving) return;
             const montoVal = parseFloat(formDocCompra.monto);
@@ -1554,28 +1677,52 @@
             }
             setIsSaving(true);
             try {
-                await FB.addDoc(col('docsCompra'), {
-                    fecha: formDocCompra.fecha,
-                    fechaVence: formDocCompra.fechaVence,
-                    numFact: formDocCompra.numFact || '003-102-000000000',
-                    proveedor: PROVEEDOR_UNICO.razonSocial,
-                    rucProveedor: PROVEEDOR_UNICO.ruc,
-                    items: formDocCompra.items,
-                    subtotal: formDocCompra.subtotal,
-                    iva15: formDocCompra.iva15,
-                    monto: montoVal,
-                    notas: formDocCompra.notas,
-                    archivo: formDocCompra.archivo,
-                    nombreArchivo: formDocCompra.nombreArchivo,
-                    tipoArchivo: formDocCompra.tipoArchivo,
-                    montoPagado: 0,
-                    estadoPago: 'pendiente',
-                    pagos: [],
-                    createdAt: new Date().toISOString()
-                });
+                const numFactFinal = (formDocCompra.numFact || '').trim();
 
-                setModalDocCompra(false);
-                mostrarAviso("¡Factura guardada! Los 4 items han ingresado de inmediato a Bodega.");
+                if (editandoDocCompraId) {
+                    const facturaRef = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'docsCompra', editandoDocCompraId);
+                    await FB.updateDoc(facturaRef, {
+                        fecha: formDocCompra.fecha,
+                        fechaVence: formDocCompra.fechaVence,
+                        numFact: numFactFinal || '003-102-000000000',
+                        proveedor: formDocCompra.proveedor || PROVEEDOR_UNICO.razonSocial,
+                        rucProveedor: formDocCompra.rucProveedor || PROVEEDOR_UNICO.ruc,
+                        items: formDocCompra.items,
+                        subtotal: formDocCompra.subtotal,
+                        iva15: formDocCompra.iva15,
+                        monto: montoVal,
+                        notas: formDocCompra.notas || '',
+                        archivo: formDocCompra.archivo || null,
+                        nombreArchivo: formDocCompra.nombreArchivo || '',
+                        tipoArchivo: formDocCompra.tipoArchivo || '',
+                        updatedAt: new Date().toISOString()
+                    });
+                    setModalDocCompra(false);
+                    setEditandoDocCompraId(null);
+                    mostrarAviso(`¡Factura ${numFactFinal || ''} actualizada con éxito!`);
+                } else {
+                    await FB.addDoc(col('docsCompra'), {
+                        fecha: formDocCompra.fecha,
+                        fechaVence: formDocCompra.fechaVence,
+                        numFact: numFactFinal || '003-102-000000000',
+                        proveedor: PROVEEDOR_UNICO.razonSocial,
+                        rucProveedor: PROVEEDOR_UNICO.ruc,
+                        items: formDocCompra.items,
+                        subtotal: formDocCompra.subtotal,
+                        iva15: formDocCompra.iva15,
+                        monto: montoVal,
+                        notas: formDocCompra.notas,
+                        archivo: formDocCompra.archivo,
+                        nombreArchivo: formDocCompra.nombreArchivo,
+                        tipoArchivo: formDocCompra.tipoArchivo,
+                        montoPagado: 0,
+                        estadoPago: 'pendiente',
+                        pagos: [],
+                        createdAt: new Date().toISOString()
+                    });
+                    setModalDocCompra(false);
+                    mostrarAviso("¡Factura guardada! Los items han ingresado de inmediato a Bodega.");
+                }
             } catch(e) {
                 setError(e.message || "Error al guardar factura");
             } finally {
@@ -1677,24 +1824,48 @@
 
             setIsSaving(true);
             try {
-                await FB.addDoc(col('docsGasto'), {
-                    fecha: formDocGasto.fecha,
-                    categoria: formDocGasto.categoria,
-                    tipoComida: formDocGasto.categoria === 'alimentacion' ? formDocGasto.tipoComida : null,
-                    tipoMantenimiento: formDocGasto.categoria === 'mantenimiento' ? formDocGasto.tipoMantenimiento : null,
-                    detalleMantenimiento: formDocGasto.categoria === 'mantenimiento' ? formDocGasto.detalleMantenimiento : null,
-                    nombreHotel: formDocGasto.categoria === 'hospedaje' ? formDocGasto.nombreHotel : null,
-                    costoDetalladoHotel: formDocGasto.categoria === 'hospedaje' ? formDocGasto.costoDetalladoHotel : null,
-                    concepto: conceptoFinal,
-                    monto: montoFinal,
-                    notas: formDocGasto.notas || '',
-                    archivo: formDocGasto.archivo || null,
-                    nombreArchivo: formDocGasto.nombreArchivo || '',
-                    tipoArchivo: formDocGasto.tipoArchivo || '',
-                    createdAt: new Date().toISOString()
-                });
+                if (editandoDocGastoId) {
+                    const gastoRef = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'docsGasto', editandoDocGastoId);
+                    await FB.updateDoc(gastoRef, {
+                        fecha: formDocGasto.fecha,
+                        categoria: formDocGasto.categoria,
+                        tipoComida: formDocGasto.categoria === 'alimentacion' ? formDocGasto.tipoComida : null,
+                        tipoMantenimiento: formDocGasto.categoria === 'mantenimiento' ? formDocGasto.tipoMantenimiento : null,
+                        detalleMantenimiento: formDocGasto.categoria === 'mantenimiento' ? formDocGasto.detalleMantenimiento : null,
+                        nombreHotel: formDocGasto.categoria === 'hospedaje' ? formDocGasto.nombreHotel : null,
+                        costoDetalladoHotel: formDocGasto.categoria === 'hospedaje' ? formDocGasto.costoDetalladoHotel : null,
+                        concepto: conceptoFinal,
+                        monto: montoFinal,
+                        notas: formDocGasto.notas || '',
+                        archivo: formDocGasto.archivo || null,
+                        nombreArchivo: formDocGasto.nombreArchivo || '',
+                        tipoArchivo: formDocGasto.tipoArchivo || '',
+                        updatedAt: new Date().toISOString()
+                    });
+                    setModalDocGasto(false);
+                    setEditandoDocGastoId(null);
+                    mostrarAviso("¡Factura de gasto actualizada con éxito!");
+                } else {
+                    await FB.addDoc(col('docsGasto'), {
+                        fecha: formDocGasto.fecha,
+                        categoria: formDocGasto.categoria,
+                        tipoComida: formDocGasto.categoria === 'alimentacion' ? formDocGasto.tipoComida : null,
+                        tipoMantenimiento: formDocGasto.categoria === 'mantenimiento' ? formDocGasto.tipoMantenimiento : null,
+                        detalleMantenimiento: formDocGasto.categoria === 'mantenimiento' ? formDocGasto.detalleMantenimiento : null,
+                        nombreHotel: formDocGasto.categoria === 'hospedaje' ? formDocGasto.nombreHotel : null,
+                        costoDetalladoHotel: formDocGasto.categoria === 'hospedaje' ? formDocGasto.costoDetalladoHotel : null,
+                        concepto: conceptoFinal,
+                        monto: montoFinal,
+                        notas: formDocGasto.notas || '',
+                        archivo: formDocGasto.archivo || null,
+                        nombreArchivo: formDocGasto.nombreArchivo || '',
+                        tipoArchivo: formDocGasto.tipoArchivo || '',
+                        createdAt: new Date().toISOString()
+                    });
+                    setModalDocGasto(false);
+                    mostrarAviso("¡Gasto operativo guardado!");
+                }
 
-                setModalDocGasto(false);
                 setFormDocGasto({
                     fecha: today,
                     categoria: 'alimentacion',
@@ -1711,7 +1882,6 @@
                     nombreArchivo: '',
                     tipoArchivo: ''
                 });
-                mostrarAviso("¡Gasto operativo guardado!");
             } catch(e) {
                 setError(e.message || "Error al registrar el gasto.");
             } finally {
@@ -3495,7 +3665,7 @@
                         </div>
 
                         <button
-                            onClick={() => setModalDocCompra(true)}
+                            onClick={abrirNuevaFacturaCompra}
                             className="bg-[#128C7E] hover:bg-[#075E54] text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase shadow-md flex items-center gap-2 transition-all active:scale-95"
                         >
                             <Icon name="plus" size={16}/>
@@ -3687,21 +3857,32 @@
                                                     <span>En Stock de Bodega</span>
                                                 </span>
 
-                                                {c.archivo && (
+                                                <div className="flex items-center gap-1.5">
                                                     <button
-                                                        onClick={() => setVisorDoc({
-                                                            url: c.archivo,
-                                                            nombre: c.nombreArchivo,
-                                                            tipo: c.tipoArchivo,
-                                                            titulo: `Factura Ingresada: ${c.numFact}`,
-                                                            detalle: `Fecha: ${c.fecha} | Total: $${c.monto.toFixed(2)} | ${totalUnidsFactura} unidades`
-                                                        })}
-                                                        className="px-2.5 py-1 bg-[#128C7E] hover:bg-[#075E54] text-white rounded-lg text-[10px] font-black uppercase flex items-center gap-1 transition-all"
+                                                        onClick={() => iniciarEdicionDocCompra(c)}
+                                                        className="px-2.5 py-1 bg-amber-500 hover:bg-amber-600 text-white rounded-lg text-[10px] font-black uppercase flex items-center gap-1 transition-all shadow-sm"
+                                                        title="Editar N° de Factura, fecha, cantidades o archivo"
                                                     >
-                                                        <Icon name="eye" size={12}/>
-                                                        <span>Ver Factura</span>
+                                                        <Icon name="edit" size={12}/>
+                                                        <span>Editar Factura</span>
                                                     </button>
-                                                )}
+
+                                                    {c.archivo && (
+                                                        <button
+                                                            onClick={() => setVisorDoc({
+                                                                url: c.archivo,
+                                                                nombre: c.nombreArchivo,
+                                                                tipo: c.tipoArchivo,
+                                                                titulo: `Factura Ingresada: ${c.numFact || '(Sin N°)'}`,
+                                                                detalle: `Fecha: ${c.fecha} | Total: $${c.monto.toFixed(2)} | ${totalUnidsFactura} unidades`
+                                                            })}
+                                                            className="px-2.5 py-1 bg-[#128C7E] hover:bg-[#075E54] text-white rounded-lg text-[10px] font-black uppercase flex items-center gap-1 transition-all"
+                                                        >
+                                                            <Icon name="eye" size={12}/>
+                                                            <span>Ver Factura</span>
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
                                         </Card>
                                     );
@@ -4274,7 +4455,7 @@
                             </button>
 
                             <button
-                                onClick={() => setModalDocCompra(true)}
+                                onClick={abrirNuevaFacturaCompra}
                                 className="bg-[#128C7E] hover:bg-[#075E54] text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase shadow-md flex items-center gap-2 transition-all"
                             >
                                 <Icon name="plus" size={16}/>
@@ -4425,10 +4606,20 @@
                                     </div>
 
                                     <div className="bg-slate-50 px-4 py-2.5 border-t border-slate-100 flex justify-between items-center text-xs">
-                                        <button onClick={() => eliminarRegistro('docsCompra', c.id)} className="text-slate-400 hover:text-red-500 font-bold text-[11px] flex items-center gap-1">
-                                            <Icon name="trash-2" size={14}/>
-                                            <span>Eliminar</span>
-                                        </button>
+                                        <div className="flex items-center gap-3">
+                                            <button onClick={() => eliminarRegistro('docsCompra', c.id)} className="text-slate-400 hover:text-red-500 font-bold text-[11px] flex items-center gap-1">
+                                                <Icon name="trash-2" size={14}/>
+                                                <span>Eliminar</span>
+                                            </button>
+                                            <button
+                                                onClick={() => iniciarEdicionDocCompra(c)}
+                                                className="text-amber-600 hover:text-amber-700 font-black text-[11px] flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200 transition-all shadow-xs"
+                                                title="Editar N° de Factura, fecha, cantidades o archivo"
+                                            >
+                                                <Icon name="edit" size={13}/>
+                                                <span>Editar Factura</span>
+                                            </button>
+                                        </div>
                                         <button
                                             onClick={() => {
                                                 setModalPagoCompra(c);
@@ -4607,7 +4798,7 @@
                             <p className="text-[11px] text-slate-500">Alimentación, combustible variable, mantenimiento y hospedaje</p>
                         </div>
                         <button
-                            onClick={() => setModalDocGasto(true)}
+                            onClick={abrirNuevoGasto}
                             className="bg-orange-600 hover:bg-orange-700 text-white px-5 py-3 rounded-xl font-black text-xs uppercase shadow-md flex items-center gap-2"
                         >
                             <Icon name="plus" size={18}/>
@@ -4631,7 +4822,16 @@
                                 {g.detalleMantenimiento && <p className="text-xs text-purple-900 bg-purple-50 p-2 rounded-lg">Mantenimiento: {g.detalleMantenimiento}</p>}
                                 {g.nombreHotel && <p className="text-xs text-blue-900 bg-blue-50 p-2 rounded-lg">Hotel: {g.nombreHotel} ({g.costoDetalladoHotel})</p>}
                                 <div className="flex justify-between items-center pt-2 border-t">
-                                    <button onClick={() => eliminarRegistro('docsGasto', g.id)} className="text-slate-400 hover:text-red-500 text-xs font-bold">Eliminar</button>
+                                    <div className="flex items-center gap-2">
+                                        <button onClick={() => eliminarRegistro('docsGasto', g.id)} className="text-slate-400 hover:text-red-500 text-xs font-bold">Eliminar</button>
+                                        <button
+                                            onClick={() => iniciarEdicionDocGasto(g)}
+                                            className="text-amber-600 hover:text-amber-700 text-xs font-bold flex items-center gap-1 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-200"
+                                        >
+                                            <Icon name="edit" size={12}/>
+                                            <span>Editar</span>
+                                        </button>
+                                    </div>
                                     {g.archivo && (
                                         <button
                                             onClick={() => setVisorDoc({
@@ -5958,31 +6158,41 @@
                 <div className="bg-white w-full max-w-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden fade-in">
                     <div className="p-4 border-b flex justify-between items-center bg-slate-50">
                         <div>
-                            <span className="text-[9px] font-black text-emerald-700 uppercase bg-emerald-100 px-2 py-0.5 rounded-md">
-                                Entrada a Bodega (4 Items de Avena Polaca)
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${editandoDocCompraId ? 'text-amber-800 bg-amber-100' : 'text-emerald-700 bg-emerald-100'}`}>
+                                {editandoDocCompraId ? '✏️ Modo Edición de Factura' : 'Entrada a Bodega (4 Items de Avena Polaca)'}
                             </span>
                             <h3 className="font-black uppercase text-xs text-slate-800 tracking-wider mt-0.5">
-                                Carga de Factura — {PROVEEDOR_UNICO.razonSocial}
+                                {editandoDocCompraId ? `Editar Factura N° ${formDocCompra.numFact || '(Sin Número)'}` : `Carga de Factura — ${PROVEEDOR_UNICO.razonSocial}`}
                             </h3>
                         </div>
-                        <button onClick={() => setModalDocCompra(false)} className="p-1 text-slate-400"><Icon name="x" size={18}/></button>
+                        <button onClick={() => { setModalDocCompra(false); setEditandoDocCompraId(null); }} className="p-1 text-slate-400"><Icon name="x" size={18}/></button>
                     </div>
 
                     <div className="p-5 space-y-4 max-h-[78vh] overflow-y-auto custom-scrollbar text-xs">
-                        {/* Botón rápido referente */}
-                        <div className="bg-amber-50 p-3 rounded-2xl border border-amber-200 flex justify-between items-center gap-2">
-                            <div>
-                                <p className="text-[10px] font-black text-amber-900 uppercase">Factura Referente de la Carpeta (F# 5913)</p>
-                                <p className="text-[10px] text-amber-700">Carga automática de las 5,919 unidades con el PDF oficial adjunto</p>
+                        {/* Botón rápido referente o Alerta de edición */}
+                        {editandoDocCompraId ? (
+                            <div className="bg-amber-50 p-3 rounded-2xl border border-amber-200 flex items-center gap-2">
+                                <span className="text-xl">✏️</span>
+                                <div>
+                                    <p className="text-[10px] font-black text-amber-900 uppercase">Editando Factura Existente</p>
+                                    <p className="text-[10px] text-amber-700">Puedes corregir o asignar el número de factura, fechas, cantidades de cada item y comprobante adjunto. Al guardar se actualizará este mismo registro.</p>
+                                </div>
                             </div>
-                            <button
-                                type="button"
-                                onClick={cargarDatosFacturaReferente}
-                                className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-black text-[10px] uppercase shadow-sm shrink-0"
-                            >
-                                Cargar Datos F# 5913
-                            </button>
-                        </div>
+                        ) : (
+                            <div className="bg-amber-50 p-3 rounded-2xl border border-amber-200 flex justify-between items-center gap-2">
+                                <div>
+                                    <p className="text-[10px] font-black text-amber-900 uppercase">Factura Referente de la Carpeta (F# 5913)</p>
+                                    <p className="text-[10px] text-amber-700">Carga automática de las 5,919 unidades con el PDF oficial adjunto</p>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={cargarDatosFacturaReferente}
+                                    className="px-3 py-1.5 bg-amber-500 hover:bg-amber-600 text-white rounded-xl font-black text-[10px] uppercase shadow-sm shrink-0"
+                                >
+                                    Cargar Datos F# 5913
+                                </button>
+                            </div>
+                        )}
 
                         {/* Datos de factura */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -6117,7 +6327,7 @@
 
                     <div className="p-4 border-t bg-slate-50 flex gap-2">
                         <button
-                            onClick={() => setModalDocCompra(false)}
+                            onClick={() => { setModalDocCompra(false); setEditandoDocCompraId(null); }}
                             className="w-1/3 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-black text-xs uppercase text-slate-700"
                         >
                             Cancelar
@@ -6125,9 +6335,9 @@
                         <button
                             onClick={guardarDocCompra}
                             disabled={isSaving}
-                            className={`flex-1 py-3 rounded-xl ${isSaving ? 'bg-slate-400' : 'bg-[#128C7E] hover:bg-[#075E54]'} text-white font-black text-xs uppercase shadow-lg transition-all`}
+                            className={`flex-1 py-3 rounded-xl ${isSaving ? 'bg-slate-400' : (editandoDocCompraId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-[#128C7E] hover:bg-[#075E54]')} text-white font-black text-xs uppercase shadow-lg transition-all`}
                         >
-                            {isSaving ? 'Guardando en Bodega...' : 'Guardar e Ingresar los 4 Items a Bodega'}
+                            {isSaving ? 'Guardando...' : (editandoDocCompraId ? '✓ Guardar Cambios en Factura' : 'Guardar e Ingresar los 4 Items a Bodega')}
                         </button>
                     </div>
                 </div>
@@ -6568,8 +6778,15 @@
             <div className="fixed inset-0 bg-slate-900/80 z-[200] overflow-y-auto backdrop-blur-sm p-2 sm:p-4 flex items-end sm:items-center justify-center">
                 <div className="bg-white w-full max-w-lg rounded-3xl flex flex-col shadow-2xl overflow-hidden fade-in">
                     <div className="p-4 border-b flex justify-between items-center bg-slate-50">
-                        <h3 className="font-black uppercase text-xs text-slate-700 tracking-wider">Ingresar Factura de Gasto</h3>
-                        <button onClick={() => setModalDocGasto(false)} className="p-1 text-slate-400"><Icon name="x" size={18}/></button>
+                        <div>
+                            <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${editandoDocGastoId ? 'text-amber-800 bg-amber-100' : 'text-orange-700 bg-orange-100'}`}>
+                                {editandoDocGastoId ? '✏️ Modo Edición de Gasto' : 'Factura / Comprobante'}
+                            </span>
+                            <h3 className="font-black uppercase text-xs text-slate-700 tracking-wider mt-0.5">
+                                {editandoDocGastoId ? 'Editar Factura de Gasto' : 'Ingresar Factura de Gasto'}
+                            </h3>
+                        </div>
+                        <button onClick={() => { setModalDocGasto(false); setEditandoDocGastoId(null); }} className="p-1 text-slate-400"><Icon name="x" size={18}/></button>
                     </div>
 
                     <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar text-xs">
@@ -6771,9 +6988,9 @@
                     </div>
 
                     <div className="p-4 border-t bg-slate-50 flex gap-2">
-                        <button onClick={() => setModalDocGasto(false)} className="w-1/3 py-3 rounded-xl bg-slate-200 font-black text-xs uppercase text-slate-700">Cancelar</button>
-                        <button onClick={guardarDocGasto} disabled={isSaving} className="flex-1 py-3 rounded-xl bg-orange-600 text-white font-black text-xs uppercase shadow-md">
-                            {isSaving ? 'Guardando...' : 'Guardar Factura de Gasto'}
+                        <button onClick={() => { setModalDocGasto(false); setEditandoDocGastoId(null); }} className="w-1/3 py-3 rounded-xl bg-slate-200 font-black text-xs uppercase text-slate-700">Cancelar</button>
+                        <button onClick={guardarDocGasto} disabled={isSaving} className={`flex-1 py-3 rounded-xl ${isSaving ? 'bg-slate-400' : (editandoDocGastoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-orange-600 hover:bg-orange-700')} text-white font-black text-xs uppercase shadow-md transition-all`}>
+                            {isSaving ? 'Guardando...' : (editandoDocGastoId ? '✓ Actualizar Factura de Gasto' : 'Guardar Factura de Gasto')}
                         </button>
                     </div>
                 </div>
