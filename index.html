@@ -33,6 +33,9 @@
     <script src="https://unpkg.com/lucide@latest"></script>
     <!-- SheetJS (xlsx) para exportación nativa de Excel (.xlsx) -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- jsPDF y AutoTable para generación y descarga nativa de Facturas/Recibos en PDF -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
     <!-- Firebase SDK v11.6.1 -->
     <script type="module">
@@ -196,6 +199,26 @@
             border: 1px solid rgba(226, 232, 240, 0.85);
             box-shadow: 0 4px 20px -2px rgba(15, 23, 42, 0.05);
         }
+        @media print {
+            body { background: white !important; color: black !important; }
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            .printable-factura-area {
+                position: fixed !important;
+                inset: 0 !important;
+                width: 100vw !important;
+                height: 100vh !important;
+                background: white !important;
+                padding: 15mm !important;
+                margin: 0 !important;
+                z-index: 999999 !important;
+                box-shadow: none !important;
+                border: none !important;
+            }
+        }
+        @media screen {
+            .print-only { display: none !important; }
+        }
     </style>
 </head>
 <body>
@@ -217,24 +240,31 @@
         resolucionRetencion: "1"
     };
 
-    // ── LOS 5 ITEMS EXCLUSIVOS COMERCIALIZADOS DE AVENA POLACA ──
+    // ── LOS ITEMS EXCLUSIVOS COMERCIALIZADOS DE AVENA POLACA (PRECIOS OFICIALES) ──
     const PRODUCTOS_POLACA = [
-        { id:'p1', codigo:'P000000256', nombre:'01 EMPACADO AVENA POLACA 165G',  costo:0.269565, pvd:0.3478, qRef: 4080 },
-        { id:'p2', codigo:'P000000247', nombre:'02 EMPACADO AVENA POLACA 340G',  costo:0.608694, pvd:0.6956, qRef: 1740 },
-        { id:'p3', codigo:'P000000005', nombre:'03 EMPACADO AVENA POLACA 500G',  costo:0.777042, pvd:0.8869, qRef: 63 },
-        { id:'p4', codigo:'P000000006', nombre:'04 EMPACADO AVENA POLACA 1000G', costo:1.597390, pvd:1.8260, qRef: 36 },
-        { id:'p5', codigo:'P000000256-BA', nombre:'05 EMPACADO AVENA POLACA 165G BAJO EN AZÚCAR', costo:0.269565, pvd:0.3478, qRef: 0 },
+        { id:'p1', codigo:'P000000256', nombre:'01 EMPACADO AVENA POLACA 165G',  costo:0.269565, costoConIva:0.310000, pvd:0.42, qRef: 4080 },
+        { id:'p5', codigo:'P000000256-BA', nombre:'02 EMPACADO AVENA POLACA 165G REDUCIDA EN AZÚCAR', costo:0.345043, costoConIva:0.396800, pvd:0.50, qRef: 0 },
+        { id:'p2', codigo:'P000000247', nombre:'03 EMPACADO AVENA POLACA 340G',  costo:0.608694, costoConIva:0.699998, pvd:0.84, qRef: 1740 },
+        { id:'p3', codigo:'P000000005', nombre:'04 EMPACADO AVENA POLACA 500G',  costo:0.777042, costoConIva:0.893598, pvd:1.05, qRef: 63 },
+        { id:'p4', codigo:'P000000006', nombre:'05 EMPACADO AVENA POLACA 1000G', costo:1.597390, costoConIva:1.836999, pvd:1.8260, qRef: 36 },
     ];
 
     const PRODUCTOS = PRODUCTOS_POLACA;
 
     const PRODUCTOS_CON_UTILIDAD = PRODUCTOS_POLACA.map(p => ({
         ...p,
-        pv17: parseFloat((p.costo * 1.17).toFixed(6)),
-        utilidad17: parseFloat((p.costo * 0.17).toFixed(6)),
+        pv17: p.pvd,
+        utilidad17: parseFloat((p.pvd - p.costo).toFixed(6)),
     }));
 
     const VENDEDORES = ["Andrés Cárdenas", "Diego Xavier Siavichay", "Vendedor Asignado"];
+
+    // ── DOS DESTINOS OFICIALES DE FACTURA ──
+    const DESTINOS_FACTURA = [
+        { id: 'andres', nombre: 'Andrés Cárdenas', badge: 'bg-emerald-100 text-emerald-800 border-emerald-200', desc: 'Distribución / Bodega: Se mantiene exacto con margen comercial para rutas oficiales' },
+        { id: '3puentes', nombre: 'Local 3 Puentes', badge: 'bg-blue-100 text-blue-800 border-blue-200', desc: 'Sin utilidad: Se despacha exactamente al precio de compra y se da de baja como cliente final (sin seguimiento)' },
+        { id: 'mixto', nombre: 'Dos Destinos (Andrés Cárdenas & Local 3 Puentes)', badge: 'bg-purple-100 text-purple-800 border-purple-200', desc: 'Factura compartida con reparto de unidades a ambos destinos' }
+    ];
 
     // ── LAS 5 RUTAS OFICIALES DE DISTRIBUCIÓN ──
     const RUTAS_OFICIALES = [
@@ -355,7 +385,7 @@
                 return s ? JSON.parse(s) : [
                     {
                         id: 'nt_1',
-                        texto: 'Entregar degustación y catálogo de la nueva presentación 165g bajo en azúcar',
+                        texto: 'Entregar degustación y catálogo de la nueva presentación 165g reducida en azúcar',
                         tipo: 'tarea',
                         completada: false,
                         prioridad: 'alta',
@@ -363,11 +393,11 @@
                         fechaCreacion: '2026-10-25 09:00',
                         fechaLimite: today,
                         fijada: true,
-                        detalles: 'Mismo costo unitario ($0.269565) y PVD ($0.3478) que el 165g tradicional.'
+                        detalles: 'Se compra a $0.345043 (+15% IVA = $0.3968) y se vende a $0.50 final.'
                     },
                     {
                         id: 'nt_2',
-                        texto: 'Revisar stock físico en bodega de 165g normal y 165g bajo en azúcar',
+                        texto: 'Revisar stock físico en bodega de 165g normal y 165g reducida en azúcar',
                         tipo: 'tarea',
                         completada: false,
                         prioridad: 'media',
@@ -375,11 +405,11 @@
                         fechaCreacion: '2026-10-25 09:15',
                         fechaLimite: today,
                         fijada: false,
-                        detalles: 'Confirmar conteo antes de la salida de rutas de mañana.'
+                        detalles: 'Confirmar stock disponible para Andrés Cárdenas y despachos a Local 3 Puentes.'
                     },
                     {
                         id: 'nt_3',
-                        texto: 'Recordatorio comercial: Las presentaciones 165g normal y bajo en azúcar tienen exactamente el mismo costo y precio de venta.',
+                        texto: 'Estructura oficial: Factura con 2 destinos (Andrés Cárdenas con utilidad, Local 3 Puentes al costo sin utilidad y dado de baja). Precios: 165g ($0.42), 165g Reducida ($0.50), 340g ($0.84) y 500g ($1.05).',
                         tipo: 'nota',
                         completada: false,
                         prioridad: 'normal',
@@ -387,7 +417,7 @@
                         fechaCreacion: '2026-10-25 08:30',
                         fechaLimite: '',
                         fijada: true,
-                        detalles: 'Margen de ganancia +17% sobre costo estándar.'
+                        detalles: 'Gastos operativos: Gasolina $280, Alimentación $80. Cuota $96.97 y Parqueo $30 eliminados.'
                     }
                 ];
             } catch(e) {
@@ -426,6 +456,7 @@
         const [filtroRutaSeleccionada, setFiltroRutaSeleccionada] = useState('todas');
         const [modalPagoCompra, setModalPagoCompra]     = useState(null);
         const [visorDoc, setVisorDoc]                   = useState(null);
+        const [modalFactura3P, setModalFactura3P]       = useState(null);
         const [showReset, setShowReset]                 = useState(false);
         const [installPrompt, setInstallPrompt]         = useState(null);
         const [isAppInstalled, setIsAppInstalled]       = useState(false);
@@ -466,25 +497,28 @@
         const [filtroPeriodoCaducados, setFiltroPeriodoCaducados] = useState('semana'); // 'hoy', 'semana', 'mes', 'todos'
         const [busquedaCaducados, setBusquedaCaducados] = useState('');
 
-        // FORM FACTURA DE COMPRA CON LOS 4 ITEMS DETALLADOS PARA ENTRADA A BODEGA
+        // FORM FACTURA DE COMPRA CON 2 DESTINOS (ANDRÉS CÁRDENAS / LOCAL 3 PUENTES)
         const [formDocCompra, setFormDocCompra] = useState({
             fecha: today,
             fechaVence: today,
             numFact: '',
             proveedor: PROVEEDOR_UNICO.razonSocial,
             rucProveedor: PROVEEDOR_UNICO.ruc,
+            destino: 'andres', // 'andres' (utilidad/bodega) | '3puentes' (al costo/sin utilidad) | 'mixto'
+            q3Puentes: {},     // cantidades asignadas a Local 3 Puentes en caso de reparto mixto
             items: PRODUCTOS_POLACA.map(p => ({
                 id: p.id,
                 codigo: p.codigo,
                 nombre: p.nombre,
                 q: p.qRef,
                 costo: p.costo,
+                pvd: p.pvd,
                 total: parseFloat((p.qRef * p.costo).toFixed(2))
             })),
             subtotal: 2265.41,
             iva15: 339.81,
             monto: 2605.22,
-            notas: 'Factura mensual Avena Polaca ingresada a bodega',
+            notas: 'Factura mensual Avena Polaca ingresada',
             archivo: null,
             nombreArchivo: '',
             tipoArchivo: ''
@@ -549,10 +583,12 @@
             tipoArchivo: ''
         });
 
-        // Form Despacho de la Mañana (Arrancar el Día en una de las 5 Rutas)
+        // Form Despacho de la Mañana (Arrancar el Día en una de las 5 Rutas o Despacho a Local 3 Puentes)
         const [formC, setFormC] = useState({
+            destinoCarga: 'andres', // 'andres' | '3puentes'
             ruta: 'canar1',
             ven: VENDEDORES[0],
+            numeroFactura: '',
             items: PRODUCTOS_POLACA.map(p => ({ ...p, q: 0 })),
             fecha: today
         });
@@ -1070,6 +1106,7 @@
                 nombre: p.nombre,
                 q: p.qRef,
                 costo: p.costo,
+                pvd: p.pvd,
                 total: parseFloat((p.qRef * p.costo).toFixed(2))
             }));
 
@@ -1079,16 +1116,18 @@
                 numFact: '003-102-000005913',
                 proveedor: PROVEEDOR_UNICO.razonSocial,
                 rucProveedor: PROVEEDOR_UNICO.ruc,
+                destino: 'andres',
+                q3Puentes: {},
                 items: itemsRef,
                 subtotal: 2265.41,
                 iva15: 339.81,
                 monto: 2605.22,
-                notas: 'Factura oficial Avena Polaca 5913 (4 items detallados para bodega)',
+                notas: 'Factura oficial Avena Polaca 5913 (Destino: Andrés Cárdenas - Ingreso a Bodega)',
                 archivo: FACTURA_REFERENTE_PDF,
                 nombreArchivo: 'RPT_DE_Factura 5913 DIST. AUSTRO.pdf',
                 tipoArchivo: 'pdf'
             });
-            mostrarAviso("¡Factura Referente #003-102-000005913 cargada con los 4 items!");
+            mostrarAviso("¡Factura Referente #003-102-000005913 cargada para Andrés Cárdenas!");
         };
 
         // Abrir modal para nueva factura de compra (resetea edición)
@@ -1100,23 +1139,306 @@
                 numFact: '',
                 proveedor: PROVEEDOR_UNICO.razonSocial,
                 rucProveedor: PROVEEDOR_UNICO.ruc,
+                destino: 'andres',
+                q3Puentes: {},
                 items: PRODUCTOS_POLACA.map(p => ({
                     id: p.id,
                     codigo: p.codigo,
                     nombre: p.nombre,
                     q: p.qRef,
                     costo: p.costo,
+                    pvd: p.pvd,
                     total: parseFloat((p.qRef * p.costo).toFixed(2))
                 })),
                 subtotal: 2265.41,
                 iva15: 339.81,
                 monto: 2605.22,
-                notas: 'Factura mensual Avena Polaca ingresada a bodega',
+                notas: 'Factura de Avena Polaca',
                 archivo: null,
                 nombreArchivo: '',
                 tipoArchivo: ''
             });
             setModalDocCompra(true);
+        };
+
+        // Obtener el número oficial de la factura de venta de Polaca correspondiente
+        const obtenerNumeroFacturaPolaca = (reg) => {
+            const defecto = (docsCompra && docsCompra.length > 0 && docsCompra[0].numFact)
+                ? docsCompra[0].numFact
+                : '003-102-000010184';
+            if (!reg) return defecto;
+            const num = (reg.numeroFactura || reg.numFacturaOrigen || '').trim();
+            if (num && !num.startsWith('FAC-3P')) return num;
+            if (reg.numFacturaOrigen && !reg.numFacturaOrigen.startsWith('FAC-3P')) return reg.numFacturaOrigen;
+            return defecto;
+        };
+
+        // Abrir modal para cargar producto desde bodega hacia Andrés Cárdenas (Rutas) o Local 3 Puentes (Al Costo + 15% IVA)
+        const abrirCargaProductoBodega = (destino = 'andres') => {
+            const es3P = destino === '3puentes';
+            const numFacturaPolaca = obtenerNumeroFacturaPolaca();
+            setFormC({
+                destinoCarga: destino,
+                ruta: es3P ? 'local3puentes' : (formC.ruta === 'local3puentes' ? 'canar1' : (formC.ruta || 'canar1')),
+                ven: es3P ? 'Local 3 Puentes' : (formC.ven === 'Local 3 Puentes' ? VENDEDORES[0] : (formC.ven || VENDEDORES[0])),
+                numeroFactura: es3P ? numFacturaPolaca : '',
+                items: PRODUCTOS_POLACA.map(p => ({ ...p, q: 0 })),
+                fecha: today
+            });
+            setModalC(true);
+        };
+
+        // Descargar PDF oficial de la Factura / Recibo para Local 3 Puentes con jsPDF
+        const descargarPDFFactura3Puentes = (datos) => {
+            if (!datos) return;
+            const itemsValidos = (datos.items || []).filter(it => (parseInt(it.q) || 0) > 0);
+            if (itemsValidos.length === 0) {
+                alert("Por favor ingresa cantidades mayores a 0 para generar y descargar la Factura en PDF.");
+                return;
+            }
+
+            const numFactura = obtenerNumeroFacturaPolaca(datos);
+            const fechaFactura = datos.fecha || today;
+            const totalUnids = itemsValidos.reduce((a, b) => a + (parseInt(b.q) || 0), 0);
+            const subtotalSinIva = itemsValidos.reduce((a, b) => a + ((parseInt(b.q) || 0) * Number(b.costo || 0)), 0);
+            const ivaTotal = subtotalSinIva * 0.15;
+            const totalConIva = itemsValidos.reduce((a, b) => a + ((parseInt(b.q) || 0) * Number(b.costoConIva || (Number(b.costo || 0) * 1.15))), 0);
+
+            const { jsPDF } = window.jspdf || {};
+            if (typeof jsPDF === 'function') {
+                try {
+                    const doc = new jsPDF({
+                        orientation: 'portrait',
+                        unit: 'mm',
+                        format: 'a4'
+                    });
+
+                    // Colores corporativos AustroPolaca
+                    const cVerdeOscuro = [7, 94, 84];     // #075E54
+                    const cTeal = [18, 140, 126];         // #128C7E
+                    const cGrisTexto = [51, 65, 85];      // slate-700
+                    const cGrisBorde = [226, 232, 240];   // slate-200
+
+                    // Barra superior institucional
+                    doc.setFillColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                    doc.rect(0, 0, 210, 8, 'F');
+
+                    // Encabezado Proveedor / Empresa Emisora
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(16);
+                    doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                    doc.text("AUSTROPOLACA CONTROL", 14, 20);
+
+                    doc.setFontSize(9);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(cTeal[0], cTeal[1], cTeal[2]);
+                    doc.text("DISTRIBUIDORA Y BODEGA CENTRAL DE AVENA POLACA", 14, 25);
+
+                    doc.setFont('helvetica', 'normal');
+                    doc.setFontSize(8);
+                    doc.setTextColor(cGrisTexto[0], cGrisTexto[1], cGrisTexto[2]);
+                    doc.text("Razón Social: " + PROVEEDOR_UNICO.razonSocial, 14, 30);
+                    doc.text("R.U.C.: " + PROVEEDOR_UNICO.ruc + " | Contribuyente Especial: " + PROVEEDOR_UNICO.contribuyenteEspecial, 14, 34);
+                    doc.text("Matriz: " + PROVEEDOR_UNICO.direccion, 14, 38);
+                    doc.text("Teléfonos: " + PROVEEDOR_UNICO.telefonos + " | Correo: " + PROVEEDOR_UNICO.correos.split('/')[0].trim(), 14, 42);
+
+                    // Recuadro derecho: Factura / Recibo
+                    doc.setDrawColor(cTeal[0], cTeal[1], cTeal[2]);
+                    doc.setLineWidth(0.8);
+                    doc.setFillColor(248, 250, 252);
+                    doc.roundedRect(125, 14, 71, 32, 2, 2, 'FD');
+
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(8.5);
+                    doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                    doc.text("R.U.C. " + PROVEEDOR_UNICO.ruc, 160.5, 20, { align: 'center' });
+
+                    doc.setFillColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                    doc.rect(125, 23, 71, 7, 'F');
+                    doc.setTextColor(255, 255, 255);
+                    doc.setFontSize(8.5);
+                    doc.text("FACTURA VENTA POLACA / RECIBO", 160.5, 28, { align: 'center' });
+
+                    doc.setTextColor(220, 38, 38);
+                    doc.setFontSize(10.5);
+                    doc.text("No. " + numFactura, 160.5, 36, { align: 'center' });
+
+                    doc.setTextColor(cGrisTexto[0], cGrisTexto[1], cGrisTexto[2]);
+                    doc.setFontSize(8);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text("FECHA DE EMISIÓN: " + fechaFactura, 160.5, 42, { align: 'center' });
+
+                    // Bloque Datos del Cliente (Local 3 Puentes)
+                    doc.setDrawColor(cGrisBorde[0], cGrisBorde[1], cGrisBorde[2]);
+                    doc.setLineWidth(0.4);
+                    doc.setFillColor(241, 245, 249);
+                    doc.roundedRect(14, 49, 182, 25, 2, 2, 'FD');
+
+                    doc.setFontSize(8);
+                    doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                    doc.setFont('helvetica', 'bold');
+                    doc.text("DESTINATARIO / CLIENTE:", 18, 55);
+                    doc.text("DIRECCIÓN / DESTINO:", 18, 60);
+                    doc.text("FACTURA POLACA DE ORIGEN:", 18, 65);
+                    doc.text("CONDICIÓN COMERCIAL:", 18, 70);
+
+                    doc.setTextColor(15, 23, 42);
+                    doc.setFont('helvetica', 'normal');
+                    doc.text("LOCAL 3 PUENTES", 68, 55);
+                    doc.text("Local Comercial Tres Puentes - Cuenca, Ecuador", 68, 60);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(7, 94, 84);
+                    doc.text(numFactura + " (Factura oficial de venta Polaca)", 68, 65);
+                    doc.setTextColor(5, 150, 105);
+                    doc.text("VENTA AL COSTO + 15% IVA ($0.00 UTILIDAD) • SALIDA DE BODEGA", 68, 70);
+
+                    // Filas de productos para la tabla
+                    const tableRows = itemsValidos.map((it, idx) => {
+                        const cant = parseInt(it.q) || 0;
+                        const cBase = Number(it.costo || 0);
+                        const cIva = Number(it.costoConIva || (cBase * 1.15));
+                        const ivaUnit = cBase * 0.15;
+                        const subtotalFila = cant * cIva;
+                        return [
+                            String(idx + 1),
+                            it.codigo || '-',
+                            (it.nombre || '').replace('EMPACADO AVENA POLACA ', 'AVENA POLACA '),
+                            cant + " u.",
+                            "$" + cBase.toFixed(4),
+                            "$" + ivaUnit.toFixed(4),
+                            "$" + cIva.toFixed(4),
+                            "$" + subtotalFila.toFixed(2)
+                        ];
+                    });
+
+                    // Renderizar tabla con autoTable
+                    doc.autoTable({
+                        startY: 76,
+                        head: [['#', 'Código', 'Descripción del Producto', 'Cant.', 'P. Costo Base', 'IVA 15%', 'P. Costo+IVA', 'Total Factura']],
+                        body: tableRows,
+                        theme: 'grid',
+                        headStyles: {
+                            fillColor: cVerdeOscuro,
+                            textColor: [255, 255, 255],
+                            fontStyle: 'bold',
+                            fontSize: 7.5,
+                            halign: 'center'
+                        },
+                        styles: {
+                            fontSize: 7.5,
+                            cellPadding: 2.2,
+                            textColor: cGrisTexto
+                        },
+                        columnStyles: {
+                            0: { halign: 'center', cellWidth: 8 },
+                            1: { halign: 'center', cellWidth: 22 },
+                            2: { halign: 'left', cellWidth: 62 },
+                            3: { halign: 'center', cellWidth: 16, fontStyle: 'bold' },
+                            4: { halign: 'right', cellWidth: 20 },
+                            5: { halign: 'right', cellWidth: 16 },
+                            6: { halign: 'right', cellWidth: 20, fontStyle: 'bold' },
+                            7: { halign: 'right', cellWidth: 18, fontStyle: 'bold' }
+                        }
+                    });
+
+                    let finalY = doc.lastAutoTable ? doc.lastAutoTable.finalY : 130;
+                    if (finalY > 230) {
+                        doc.addPage();
+                        finalY = 20;
+                    }
+
+                    // Cuadro de Resumen de Totales
+                    const boxX = 115;
+                    const boxW = 81;
+                    doc.setDrawColor(203, 213, 225);
+                    doc.setFillColor(248, 250, 252);
+                    doc.roundedRect(boxX, finalY + 4, boxW, 36, 1.5, 1.5, 'FD');
+
+                    doc.setFontSize(8);
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(cGrisTexto[0], cGrisTexto[1], cGrisTexto[2]);
+
+                    doc.text("SUBTOTAL (BASE IMPONIBLE):", boxX + 4, finalY + 11);
+                    doc.text("$" + subtotalSinIva.toFixed(2), boxX + boxW - 4, finalY + 11, { align: 'right' });
+
+                    doc.text("I.V.A. (15%):", boxX + 4, finalY + 18);
+                    doc.text("$" + ivaTotal.toFixed(2), boxX + boxW - 4, finalY + 18, { align: 'right' });
+
+                    doc.setDrawColor(18, 140, 126);
+                    doc.setLineWidth(0.4);
+                    doc.line(boxX + 4, finalY + 22, boxX + boxW - 4, finalY + 22);
+
+                    doc.setFont('helvetica', 'bold');
+                    doc.setFontSize(9.5);
+                    doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                    doc.text("TOTAL FACTURA / A PAGAR:", boxX + 4, finalY + 28);
+                    doc.text("$" + totalConIva.toFixed(2), boxX + boxW - 4, finalY + 28, { align: 'right' });
+
+                    doc.setFontSize(7.5);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(5, 150, 105);
+                    doc.text("UTILIDAD BRUTA (MARGEN): $0.00 (SIN GANANCIA)", boxX + 4, finalY + 34);
+
+                    // Resumen de cantidades despachadas
+                    doc.setDrawColor(226, 232, 240);
+                    doc.setFillColor(241, 245, 249);
+                    doc.roundedRect(14, finalY + 4, 95, 36, 1.5, 1.5, 'FD');
+
+                    doc.setFontSize(8);
+                    doc.setFont('helvetica', 'bold');
+                    doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                    doc.text("RESUMEN DE DESPACHO:", 18, finalY + 11);
+
+                    doc.setFont('helvetica', 'normal');
+                    doc.setTextColor(cGrisTexto[0], cGrisTexto[1], cGrisTexto[2]);
+                    doc.text("• Total unidades despachadas: " + totalUnids + " u.", 18, finalY + 17);
+                    doc.text("• Salida directa desde: BODEGA CENTRAL", 18, finalY + 23);
+                    doc.text("• Tarifa aplicada: Costo de fábrica + 15% IVA", 18, finalY + 29);
+                    doc.text("• No requiere liquidación nocturna ni seguimiento", 18, finalY + 35);
+
+                    // Firmas
+                    const signY = finalY + 54;
+                    if (signY < 270) {
+                        doc.setDrawColor(148, 163, 184);
+                        doc.setLineWidth(0.5);
+                        doc.line(25, signY, 85, signY);
+                        doc.line(125, signY, 185, signY);
+
+                        doc.setFontSize(7.5);
+                        doc.setFont('helvetica', 'bold');
+                        doc.setTextColor(cGrisTexto[0], cGrisTexto[1], cGrisTexto[2]);
+                        doc.text("ENTREGADO POR (BODEGA):", 55, signY + 4, { align: 'center' });
+                        doc.text("RECIBIDO CONFORME (LOCAL 3 PUENTES):", 155, signY + 4, { align: 'center' });
+
+                        doc.setFont('helvetica', 'normal');
+                        doc.setFontSize(6.5);
+                        doc.text("AustroPolaca Control / Bodega", 55, signY + 8, { align: 'center' });
+                        doc.text("Local Comercial 3 Puentes", 155, signY + 8, { align: 'center' });
+                    }
+
+                    // Pie de página
+                    doc.setFontSize(6.5);
+                    doc.setTextColor(148, 163, 184);
+                    doc.text("Documento emitido por AustroPolaca Control • " + new Date().toLocaleString('es-EC'), 14, 290);
+                    doc.text("Página 1 de 1", 196, 290, { align: 'right' });
+
+                    // Guardar y descargar el PDF con nombre representativo
+                    const nombreDescarga = "Factura_Local_3_Puentes_" + numFactura.replace(/[^a-zA-Z0-9_-]/g, '_') + ".pdf";
+                    doc.save(nombreDescarga);
+                    mostrarAviso("✓ Factura PDF descargada: " + nombreDescarga);
+                    return;
+                } catch(err) {
+                    console.error("Error al generar PDF con jsPDF:", err);
+                }
+            }
+
+            // Fallback directo a visor imprimible
+            setModalFactura3P(datos);
+        };
+
+        const imprimirFacturaRecibo3Puentes = (datos) => {
+            if (!datos) return;
+            setModalFactura3P(datos);
         };
 
         // Iniciar edición de factura de compra existente (permite modificar N° factura, fechas, cantidades o archivo)
@@ -1126,14 +1448,18 @@
 
             let itemsCargados = [];
             if (factura.items && Array.isArray(factura.items) && factura.items.length > 0) {
-                itemsCargados = factura.items.map(it => ({
-                    id: it.id,
-                    codigo: it.codigo || '',
-                    nombre: it.nombre || '',
-                    q: parseFloat(it.q) || 0,
-                    costo: parseFloat(it.costo) || 0,
-                    total: parseFloat(((parseFloat(it.q) || 0) * (parseFloat(it.costo) || 0)).toFixed(2))
-                }));
+                itemsCargados = factura.items.map(it => {
+                    const prodMatch = PRODUCTOS_POLACA.find(p => p.id === it.id);
+                    return {
+                        id: it.id,
+                        codigo: it.codigo || prodMatch?.codigo || '',
+                        nombre: it.nombre || prodMatch?.nombre || '',
+                        q: parseFloat(it.q) || 0,
+                        costo: parseFloat(it.costo) || prodMatch?.costo || 0,
+                        pvd: parseFloat(it.pvd) || prodMatch?.pvd || 0,
+                        total: parseFloat(((parseFloat(it.q) || 0) * (parseFloat(it.costo) || prodMatch?.costo || 0)).toFixed(2))
+                    };
+                });
             } else {
                 itemsCargados = PRODUCTOS_POLACA.map(p => ({
                     id: p.id,
@@ -1141,6 +1467,7 @@
                     nombre: p.nombre,
                     q: p.qRef,
                     costo: p.costo,
+                    pvd: p.pvd,
                     total: parseFloat((p.qRef * p.costo).toFixed(2))
                 }));
             }
@@ -1155,6 +1482,8 @@
                 numFact: factura.numFact || '',
                 proveedor: factura.proveedor || PROVEEDOR_UNICO.razonSocial,
                 rucProveedor: factura.rucProveedor || PROVEEDOR_UNICO.ruc,
+                destino: factura.destino || 'andres',
+                q3Puentes: factura.q3Puentes || {},
                 items: itemsCargados,
                 subtotal: parseFloat((factura.subtotal !== undefined ? factura.subtotal : subCalc).toFixed(2)),
                 iva15: parseFloat((factura.iva15 !== undefined ? factura.iva15 : ivaCalc).toFixed(2)),
@@ -1667,7 +1996,7 @@
         // ── ACCIONES FIREBASE ──
         const col = n => FB.collection(window.appDb, 'artifacts', window.appId, 'public', 'data', n);
 
-        // Guardar o Actualizar Factura de Compra de Avena Polaca
+        // Guardar o Actualizar Factura de Compra de Avena Polaca (Con soporte para los 2 Destinos)
         const guardarDocCompra = async () => {
             if (!user || isSaving) return;
             const montoVal = parseFloat(formDocCompra.monto);
@@ -1678,6 +2007,8 @@
             setIsSaving(true);
             try {
                 const numFactFinal = (formDocCompra.numFact || '').trim();
+                const destinoFinal = formDocCompra.destino || 'andres';
+                const q3P = formDocCompra.q3Puentes || {};
 
                 if (editandoDocCompraId) {
                     const facturaRef = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'docsCompra', editandoDocCompraId);
@@ -1687,6 +2018,8 @@
                         numFact: numFactFinal || '003-102-000000000',
                         proveedor: formDocCompra.proveedor || PROVEEDOR_UNICO.razonSocial,
                         rucProveedor: formDocCompra.rucProveedor || PROVEEDOR_UNICO.ruc,
+                        destino: destinoFinal,
+                        q3Puentes: q3P,
                         items: formDocCompra.items,
                         subtotal: formDocCompra.subtotal,
                         iva15: formDocCompra.iva15,
@@ -1701,17 +2034,20 @@
                     setEditandoDocCompraId(null);
                     mostrarAviso(`¡Factura ${numFactFinal || ''} actualizada con éxito!`);
                 } else {
+                    // Guardar Factura de Compra
                     await FB.addDoc(col('docsCompra'), {
                         fecha: formDocCompra.fecha,
                         fechaVence: formDocCompra.fechaVence,
                         numFact: numFactFinal || '003-102-000000000',
                         proveedor: PROVEEDOR_UNICO.razonSocial,
                         rucProveedor: PROVEEDOR_UNICO.ruc,
+                        destino: destinoFinal,
+                        q3Puentes: q3P,
                         items: formDocCompra.items,
                         subtotal: formDocCompra.subtotal,
                         iva15: formDocCompra.iva15,
                         monto: montoVal,
-                        notas: formDocCompra.notas,
+                        notas: formDocCompra.notas || '',
                         archivo: formDocCompra.archivo,
                         nombreArchivo: formDocCompra.nombreArchivo,
                         tipoArchivo: formDocCompra.tipoArchivo,
@@ -1720,8 +2056,86 @@
                         pagos: [],
                         createdAt: new Date().toISOString()
                     });
+
+                    // SI EL DESTINO ES LOCAL 3 PUENTES (O PARTE EN MIXTO):
+                    // Se despacha exactamente al precio de compra (sin utilidad) y se da de baja como cliente final (no requiere seguimiento)
+                    if (destinoFinal === '3puentes' || destinoFinal === 'mixto') {
+                        const itemsPara3P = formDocCompra.items.map(it => {
+                            const cantidad3P = destinoFinal === '3puentes' ? (parseFloat(it.q) || 0) : (parseFloat(q3P[it.id]) || 0);
+                            const cBase = Number(it.costo || 0);
+                            const cIva = Number(it.costoConIva || (cBase * 1.15));
+                            const ivaUnit = cBase * 0.15;
+                            return {
+                                id: it.id,
+                                codigo: it.codigo,
+                                nombre: it.nombre,
+                                q: cantidad3P,
+                                costo: cBase,
+                                ivaUnitario: parseFloat(ivaUnit.toFixed(4)),
+                                costoConIva: parseFloat(cIva.toFixed(4)),
+                                pvd: parseFloat(cIva.toFixed(4)), // EXACTAMENTE AL COSTO + 15% IVA
+                                subtotalSinIva: parseFloat((cantidad3P * cBase).toFixed(4)),
+                                totalVenta: parseFloat((cantidad3P * cIva).toFixed(2)),
+                                total: parseFloat((cantidad3P * cIva).toFixed(2)),
+                                utilidad: 0
+                            };
+                        }).filter(it => it.q > 0);
+
+                        if (itemsPara3P.length > 0) {
+                            const subtotalSinIva3P = itemsPara3P.reduce((acc, it) => acc + (it.q * it.costo), 0);
+                            const totalIva3P = subtotalSinIva3P * 0.15;
+                            const totalConIva3P = itemsPara3P.reduce((acc, it) => acc + (it.q * it.costoConIva), 0);
+                            const totalUnids3P = itemsPara3P.reduce((acc, it) => acc + it.q, 0);
+
+                            const nuevoDespachoCompra3P = {
+                                rutaId: 'local3puentes',
+                                ruta: 'Local 3 Puentes',
+                                rutaNombre: 'Local 3 Puentes',
+                                cliente: 'Local 3 Puentes',
+                                destino: 'Local 3 Puentes',
+                                responsable: 'Despacho al Costo',
+                                numeroFactura: numFactFinal || obtenerNumeroFacturaPolaca(),
+                                numFacturaOrigen: numFactFinal || obtenerNumeroFacturaPolaca(),
+                                fecha: formDocCompra.fecha,
+                                fechaLiquidacion: formDocCompra.fecha,
+                                estado: 'liquidada',
+                                estadoCliente: 'dado_de_baja',
+                                tipoDespacho: 'venta_final_3puentes',
+                                sinUtilidad: true,
+                                costoMasIva: true,
+                                requiereSeguimiento: false,
+                                items: itemsPara3P,
+                                itemsDevueltos: [],
+                                gastos: { combustible: 0, alimentacion: 0, viaticos: 0, hospedaje: 0, mantenimiento: 0, otros: 0 },
+                                gastosTotal: 0,
+                                totalCarga: parseFloat(totalConIva3P.toFixed(2)),
+                                totalCargado: parseFloat(totalConIva3P.toFixed(2)),
+                                totalConIva: parseFloat(totalConIva3P.toFixed(2)),
+                                totalCosto: parseFloat(subtotalSinIva3P.toFixed(4)),
+                                totalSinIva: parseFloat(subtotalSinIva3P.toFixed(4)),
+                                totalIva: parseFloat(totalIva3P.toFixed(4)),
+                                totalVenta: parseFloat(totalConIva3P.toFixed(2)),
+                                ventaNeta: parseFloat(totalConIva3P.toFixed(2)),
+                                totalADepositar: parseFloat(totalConIva3P.toFixed(2)),
+                                utilidadBruta: 0,
+                                depositoReportado: parseFloat(totalConIva3P.toFixed(2)),
+                                totalUnidades: totalUnids3P,
+                                notas: `Factura ${numFactFinal}: ${totalUnids3P} unidades enviadas a Local 3 Puentes al costo + 15% IVA ($${totalConIva3P.toFixed(2)}) sin utilidad. Cliente final dado de baja.`,
+                                createdAt: new Date().toISOString()
+                            };
+
+                            await FB.addDoc(col('despachos'), nuevoDespachoCompra3P);
+                        }
+                    }
+
                     setModalDocCompra(false);
-                    mostrarAviso("¡Factura guardada! Los items han ingresado de inmediato a Bodega.");
+                    if (destinoFinal === '3puentes') {
+                        mostrarAviso("¡Factura guardada! Despachada a Local 3 Puentes exactamente al precio de compra sin utilidad y dada de baja como cliente final.");
+                    } else if (destinoFinal === 'mixto') {
+                        mostrarAviso("¡Factura guardada! Unidades distribuidas entre Andrés Cárdenas y Local 3 Puentes.");
+                    } else {
+                        mostrarAviso("¡Factura guardada para Andrés Cárdenas! Items ingresados a Bodega para distribución con utilidad.");
+                    }
                 }
             } catch(e) {
                 setError(e.message || "Error al guardar factura");
@@ -1890,47 +2304,149 @@
         };
 
         const guardarCarga = async () => {
-            if (!user || isSaving || !formC.ruta) return;
-            const rutaInfo = RUTAS_OFICIALES.find(r => r.id === formC.ruta) || { nombre: formC.ruta };
+            if (!user || isSaving) return;
+            const es3Puentes = (formC.destinoCarga === '3puentes' || formC.ruta === 'local3puentes');
+            const rutaIdFinal = es3Puentes ? 'local3puentes' : (formC.ruta || 'canar1');
+            const rutaInfo = es3Puentes 
+                ? { nombre: 'Local 3 Puentes', zona: 'Local 3 Puentes (Venta Final al Costo)' }
+                : (RUTAS_OFICIALES.find(r => r.id === rutaIdFinal) || { nombre: rutaIdFinal, zona: 'Ruta General' });
+
             const totalUnidades = formC.items.reduce((a, b) => a + (parseInt(b.q) || 0), 0);
-            const totalVenta = formC.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * (b.pvd || 0)), 0);
             const totalCosto = formC.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * (b.costo || 0)), 0);
+            const totalVenta = es3Puentes
+                ? totalCosto
+                : formC.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * (b.pvd || 0)), 0);
 
             if (totalUnidades <= 0) {
-                setError("Por favor ingresa las cantidades de los productos que suben al camión.");
+                setError("Por favor ingresa las cantidades de los productos que se van a cargar de bodega.");
                 return;
             }
+
+            // Validar stock disponible en bodega para alertar si supera físico
+            const itemsSinStock = formC.items.filter(it => {
+                const stockBodega = stockPorProducto.find(s => s.id === it.id)?.stock || 0;
+                return (parseInt(it.q) || 0) > stockBodega;
+            });
+            if (itemsSinStock.length > 0) {
+                const detalleSinStock = itemsSinStock.map(it => {
+                    const disp = stockPorProducto.find(s => s.id === it.id)?.stock || 0;
+                    return `${it.nombre}: pides ${it.q} u. pero hay ${disp} u. en bodega`;
+                }).join('\n');
+                if (!confirm(`⚠️ Atención: La cantidad solicitada supera el stock físico calculado en bodega:\n\n${detalleSinStock}\n\n¿Deseas continuar y registrar la salida de bodega de todas formas?`)) {
+                    return;
+                }
+            }
+
             setIsSaving(true);
             try {
-                await FB.addDoc(col('despachos'), {
-                    rutaId: formC.ruta,
-                    ruta: rutaInfo.nombre,
-                    responsable: formC.ven || rutaInfo.nombre,
-                    fecha: formC.fecha,
-                    totalUnidades,
-                    totalCargado: totalVenta,
-                    totalCosto,
-                    items: formC.items.map(it => ({
-                        id: it.id,
-                        codigo: it.codigo,
-                        nombre: it.nombre,
-                        q: parseInt(it.q) || 0,
-                        costo: it.costo,
-                        pvd: it.pvd
-                    })),
-                    estado: 'activa', // En ruta en la mañana
-                    createdAt: new Date().toISOString()
-                });
+                if (es3Puentes) {
+                    // ── CARGA DIRECTA A LOCAL 3 PUENTES (VENTA FINAL AL COSTO + 15% IVA SIN UTILIDAD) ──
+                    const totalSinIva = formC.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * (Number(b.costo) || 0)), 0);
+                    const totalIva = totalSinIva * 0.15;
+                    const totalConIva = formC.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * (Number(b.costoConIva) || (Number(b.costo) * 1.15))), 0);
+                    const numeroFacturaFinal = (formC.numeroFactura && formC.numeroFactura.trim() && !formC.numeroFactura.startsWith('FAC-3P'))
+                        ? formC.numeroFactura.trim()
+                        : obtenerNumeroFacturaPolaca();
+
+                    const nuevoDespacho3P = {
+                        rutaId: 'local3puentes',
+                        ruta: 'Local 3 Puentes',
+                        destino: 'Local 3 Puentes',
+                        responsable: 'Local 3 Puentes',
+                        cliente: 'Local 3 Puentes',
+                        numeroFactura: numeroFacturaFinal,
+                        numFacturaOrigen: numeroFacturaFinal,
+                        fecha: formC.fecha || today,
+                        fechaLiquidacion: formC.fecha || today,
+                        totalUnidades,
+                        totalSinIva: parseFloat(totalSinIva.toFixed(4)),
+                        totalIva: parseFloat(totalIva.toFixed(4)),
+                        totalCargado: parseFloat(totalConIva.toFixed(2)),
+                        totalConIva: parseFloat(totalConIva.toFixed(2)),
+                        totalCosto: parseFloat(totalSinIva.toFixed(4)),
+                        totalVenta: parseFloat(totalConIva.toFixed(2)),
+                        ventaNeta: parseFloat(totalConIva.toFixed(2)),
+                        totalADepositar: parseFloat(totalConIva.toFixed(2)),
+                        utilidadBruta: 0,
+                        sinUtilidad: true,
+                        costoMasIva: true,
+                        estado: 'liquidada', // Venta final directa ya liquidada
+                        estadoCliente: 'dado_de_baja',
+                        tipoDespacho: 'venta_final_3puentes',
+                        requiereSeguimiento: false,
+                        items: formC.items.map(it => {
+                            const qVal = parseInt(it.q) || 0;
+                            const cBase = Number(it.costo || 0);
+                            const cIva = Number(it.costoConIva || (cBase * 1.15));
+                            const ivaUnit = cBase * 0.15;
+                            return {
+                                id: it.id,
+                                codigo: it.codigo,
+                                nombre: it.nombre,
+                                q: qVal,
+                                costo: cBase,
+                                ivaUnitario: parseFloat(ivaUnit.toFixed(4)),
+                                costoConIva: parseFloat(cIva.toFixed(4)),
+                                pvd: parseFloat(cIva.toFixed(4)), // FACTURADO EXACTAMENTE AL COSTO + 15% IVA
+                                subtotalSinIva: parseFloat((qVal * cBase).toFixed(4)),
+                                total: parseFloat((qVal * cIva).toFixed(2))
+                            };
+                        }),
+                        itemsDevueltos: [],
+                        gastos: { combustible: 0, alimentacion: 0, viaticos: 0, hospedaje: 0, mantenimiento: 0, otros: 0 },
+                        gastosTotal: 0,
+                        notas: `Factura ${numeroFacturaFinal} de Local 3 Puentes: ${totalUnidades} u. despachadas como VENTA FINAL al costo más 15% IVA ($${totalConIva.toFixed(2)}) sin utilidad. Cliente final dado de baja.`,
+                        createdAt: new Date().toISOString()
+                    };
+
+                    await FB.addDoc(col('despachos'), nuevoDespacho3P);
+
+                    setModalC(false);
+                    mostrarAviso(`✓ Factura ${numeroFacturaFinal} registrada: ${totalUnidades} u. enviadas a Local 3 Puentes al costo + 15% IVA ($${totalConIva.toFixed(2)}).`);
+
+                    // Descargar automáticamente el PDF de la Factura y abrir recibo en pantalla
+                    setTimeout(() => {
+                        descargarPDFFactura3Puentes(nuevoDespacho3P);
+                        setModalFactura3P(nuevoDespacho3P);
+                    }, 400);
+                } else {
+                    // ── CARGA A ANDRÉS CÁRDENAS (RUTAS CON MARGEN DE UTILIDAD COMERCIAL) ──
+                    await FB.addDoc(col('despachos'), {
+                        rutaId: rutaIdFinal,
+                        ruta: rutaInfo.nombre,
+                        destino: 'Andrés Cárdenas',
+                        responsable: formC.ven || rutaInfo.nombre,
+                        fecha: formC.fecha || today,
+                        totalUnidades,
+                        totalCargado: totalVenta,
+                        totalCosto,
+                        items: formC.items.map(it => ({
+                            id: it.id,
+                            codigo: it.codigo,
+                            nombre: it.nombre,
+                            q: parseInt(it.q) || 0,
+                            costo: it.costo,
+                            pvd: it.pvd
+                        })),
+                        estado: 'activa', // En ruta para el día
+                        sinUtilidad: false,
+                        requiereSeguimiento: true,
+                        createdAt: new Date().toISOString()
+                    });
+
+                    mostrarAviso(`✓ Carga a Andrés Cárdenas en ${rutaInfo.nombre} despachada con éxito: ${totalUnidades} u. en ruta para venta con utilidad.`);
+                }
+
                 setModalC(false);
                 setFormC({
+                    destinoCarga: 'andres',
                     ruta: 'canar1',
                     ven: VENDEDORES[0],
                     items: PRODUCTOS_POLACA.map(p => ({ ...p, q: 0 })),
                     fecha: today
                 });
-                mostrarAviso(`¡Ruta ${rutaInfo.nombre} despachada con éxito! ${totalUnidades} unidades en ruta.`);
             } catch(e) {
-                setError(e.message || "Error al despachar la ruta.");
+                setError(e.message || "Error al despachar el producto.");
             } finally {
                 setIsSaving(false);
             }
@@ -2141,22 +2657,22 @@
         const GASTOS_PRESUPUESTADOS = {
             pagoVehiculoMensual: 381.96,   // Pago mensual vehículo utilitario durante 36 meses
             mesesPlazoVehiculo: 36,
-            creditoDosAnosMensual: 96.97,  // Crédito operativo a 2 años plazo (24 meses)
-            mesesPlazoCredito: 24,
-            gasolinaMensual: 360.00,       // Combustible mensual para las 5 rutas oficiales
+            creditoDosAnosMensual: 0.00,   // Pago de $96.97 eliminado según instrucción oficial
+            mesesPlazoCredito: 0,
+            gasolinaMensual: 280.00,       // Combustible mensual actualizado ($280 oficial)
             hotelesMensual: 100.00,        // Hospedajes en hoteles mensual ($100 fijo)
-            mantenimientoVehiculo: 120.00, // Mantenimiento preventivo mensual del vehículo
-            alimentacionMensual: 96.00,    // Alimentación mensual en ruta ($96 fijo)
+            mantenimientoVehiculo: 120.00, // Mantenimiento preventivo mensual del vehículo ($120 fijo)
+            alimentacionMensual: 80.00,    // Alimentación mensual en ruta ($80 oficial)
             ayudanteRutaMensual: 50.00,    // Ayudante de ruta mensual ($50 fijo)
-            parqueoMensual: 30.00,         // Parqueo mensual para resguardo seguro
-            planInternet: 15.00            // Plan celular y datos mensual
+            parqueoMensual: 0.00,          // Parqueadero $30 eliminado según instrucción oficial
+            planInternet: 15.00            // Plan celular y datos mensual ($15)
         };
 
         const presupuestoGastosMensual = useMemo(() => {
             const dias = parseInt(diasRutaMes) || 22;
 
             // Total Gastos Fijos Mensuales:
-            // 381.96 + 96.97 + 360.00 + 100.00 + 120.00 + 96.00 + 50.00 + 30.00 + 15.00 = $1,249.93 / mes
+            // 381.96 + 280.00 + 100.00 + 120.00 + 80.00 + 50.00 + 15.00 = $1,026.96 / mes
             const totalFijo = 
                 GASTOS_PRESUPUESTADOS.pagoVehiculoMensual +
                 GASTOS_PRESUPUESTADOS.creditoDosAnosMensual +
@@ -2168,8 +2684,8 @@
                 GASTOS_PRESUPUESTADOS.parqueoMensual +
                 GASTOS_PRESUPUESTADOS.planInternet;
 
-            // Margen Bruto Ponderado de Distribución de Avena Polaca (+17.65% según fórmula oficial)
-            const margenPonderado = 0.1765;
+            // Margen Bruto Ponderado sobre Ventas de Distribución de Avena Polaca (~31.50%)
+            const margenPonderado = 0.3150;
             // Punto de Equilibrio en Ventas = Costos Fijos / Margen Bruto
             const ventaPuntoEquilibrio = totalFijo / margenPonderado;
             const ventaDiariaEquilibrio = dias > 0 ? (ventaPuntoEquilibrio / dias) : 0;
@@ -2398,15 +2914,14 @@
                         [],
                         ["Venta Bruta Total (PVD)", `$${rep.totalVenta.toFixed(2)}`, "Ingreso bruto facturado"],
                         ["Costo de Mercadería Vendida", `$${rep.totalCosto.toFixed(2)}`, "Costo de compra a Avena Polaca"],
-                        ["Utilidad Bruta de Distribución", `$${rep.utilidadBruta.toFixed(2)}`, "Margen de comercialización (+17%)"],
+                        ["Utilidad Bruta de Distribución", `$${rep.utilidadBruta.toFixed(2)}`, "Margen de comercialización oficial"],
                         [],
                         ["(-) Gastos Operativos en Rutas", `$${rep.gastosRutaTotal.toFixed(2)}`, "Combustible, viáticos, comidas en ruta"],
                         ["(-) Gastos Operativos Generales", `$${rep.gastosGenerales.toFixed(2)}`, "Mantenimiento, hospedaje, facturas de gasto"],
                         ["(-) Pérdidas por Devolución de Clientes (100%)", `$${rep.perdidaDevs.toFixed(2)}`, "Bajas reconocidas al 100%"],
                         ["(-) Pago Crédito Vehículo (Mensual)", `$${(rep.pagoVehiculoPeriodo || 0).toFixed(2)}`, `Cuota ${cuotaVehiculoNumero} de 36 meses ($381.96)`],
-                        ["(-) Crédito Operativo 2 Años (Mensual)", `$${(rep.creditoPeriodo || 0).toFixed(2)}`, `Cuota ${cuotaCreditoNumero} de 24 meses ($96.97)`],
                         [],
-                        ["(=) UTILIDAD NETA REAL DEL PERÍODO", `$${(rep.utilidadNeta - (rep.pagoVehiculoPeriodo || 0) - (rep.creditoPeriodo || 0)).toFixed(2)}`, "Ganancia líquida real disponible"]
+                        ["(=) UTILIDAD NETA REAL DEL PERÍODO", `$${(rep.utilidadNeta - (rep.pagoVehiculoPeriodo || 0)).toFixed(2)}`, "Ganancia líquida real disponible"]
                     ];
                     const wsResumen = XLSX.utils.aoa_to_sheet(resumenRows);
                     XLSX.utils.book_append_sheet(wb, wsResumen, "Resumen Ejecutivo");
@@ -2820,11 +3335,19 @@
                                 <span>Notas & Tareas {statsNotas.pendientes > 0 ? `(${statsNotas.pendientes})` : ''}</span>
                             </button>
                             <button
-                                onClick={() => { setActiveTab('rutas'); setModalC(true); }}
+                                onClick={() => { setActiveTab('bodega'); abrirCargaProductoBodega('3puentes'); }}
+                                className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-xs font-black rounded-xl shadow-sm transition-all"
+                                title="Cargar producto de bodega directo a Local 3 Puentes al costo"
+                            >
+                                <Icon name="store" size={14} className="text-emerald-200"/>
+                                <span>Cargar 3 Puentes (Al Costo)</span>
+                            </button>
+                            <button
+                                onClick={() => { setActiveTab('rutas'); abrirCargaProductoBodega('andres'); }}
                                 className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 bg-[#075E54] hover:bg-[#128C7E] text-white text-xs font-black rounded-xl shadow-sm transition-all"
                             >
                                 <Icon name="sun" size={14} className="text-amber-300"/>
-                                <span>Cargar AM</span>
+                                <span>Cargar Andrés (Ruta)</span>
                             </button>
                             <button
                                 onClick={() => setActiveTab('rutas')}
@@ -3664,13 +4187,31 @@
                             </div>
                         </div>
 
-                        <button
-                            onClick={abrirNuevaFacturaCompra}
-                            className="bg-[#128C7E] hover:bg-[#075E54] text-white px-4 py-2.5 rounded-xl font-black text-xs uppercase shadow-md flex items-center gap-2 transition-all active:scale-95"
-                        >
-                            <Icon name="plus" size={16}/>
-                            <span>Ingresar Factura de Stock</span>
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <button
+                                onClick={() => abrirCargaProductoBodega('3puentes')}
+                                className="bg-emerald-700 hover:bg-emerald-800 text-white px-3.5 py-2.5 rounded-xl font-black text-xs uppercase shadow-md flex items-center gap-2 transition-all active:scale-95 ring-2 ring-emerald-300"
+                            >
+                                <Icon name="store" size={16}/>
+                                <span>Cargar a Local 3 Puentes (Al Costo)</span>
+                            </button>
+
+                            <button
+                                onClick={() => abrirCargaProductoBodega('andres')}
+                                className="bg-blue-600 hover:bg-blue-700 text-white px-3.5 py-2.5 rounded-xl font-black text-xs uppercase shadow-md flex items-center gap-2 transition-all active:scale-95"
+                            >
+                                <Icon name="truck" size={16}/>
+                                <span>Cargar a Andrés Cárdenas (Ruta)</span>
+                            </button>
+
+                            <button
+                                onClick={abrirNuevaFacturaCompra}
+                                className="bg-slate-800 hover:bg-slate-900 text-white px-3.5 py-2.5 rounded-xl font-black text-xs uppercase shadow-md flex items-center gap-2 transition-all active:scale-95"
+                            >
+                                <Icon name="plus" size={16}/>
+                                <span>Ingresar Factura de Stock</span>
+                            </button>
+                        </div>
                     </div>
 
                     {/* TARJETAS RESUMEN DE BODEGA */}
@@ -3697,6 +4238,40 @@
                         </Card>
                     </div>
 
+                    {/* ACCIONES DIRECTAS DE CARGA DE BODEGA: 2 DESTINOS OFICIALES */}
+                    <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 p-4 rounded-2xl text-white shadow-md flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border border-slate-700">
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <span className="p-1.5 bg-[#25D366]/20 text-[#25D366] rounded-lg">
+                                    <Icon name="package-check" size={20}/>
+                                </span>
+                                <h3 className="font-black text-sm uppercase tracking-wider text-white">
+                                    Cargar Producto desde Bodega — 2 Destinos Oficiales
+                                </h3>
+                            </div>
+                            <p className="text-[11px] text-slate-300 mt-1 max-w-xl">
+                                Selecciona el destino del despacho: <strong>1. Andrés Cárdenas</strong> (ingreso a ruta comercial con margen de utilidad) o <strong>2. Local 3 Puentes</strong> (se despacha exactamente al precio de compra sin utilidad y queda dado de baja sin seguimiento).
+                            </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                            <button
+                                onClick={() => abrirCargaProductoBodega('3puentes')}
+                                className="flex-1 sm:flex-initial px-4 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs uppercase rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all hover:scale-105 ring-2 ring-emerald-400"
+                            >
+                                <Icon name="store" size={16}/>
+                                <span>🏪 Cargar a Local 3 Puentes (Al Costo)</span>
+                            </button>
+                            <button
+                                onClick={() => abrirCargaProductoBodega('andres')}
+                                className="flex-1 sm:flex-initial px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase rounded-xl shadow-lg flex items-center justify-center gap-2 transition-all hover:scale-105"
+                            >
+                                <Icon name="truck" size={16}/>
+                                <span>🚚 Cargar a Andrés Cárdenas (Rutas)</span>
+                            </button>
+                        </div>
+                    </div>
+
                     {/* TABLA DE STOCK EN TIEMPO REAL DE LOS 5 ITEMS */}
                     <Card className="p-0 overflow-hidden">
                         <div className="bg-gradient-to-r from-[#075E54] to-[#128C7E] px-5 py-3 text-white flex justify-between items-center">
@@ -3719,8 +4294,8 @@
                                         <th className="p-3 text-right text-[9px] font-black uppercase text-orange-200">En Ruta (Salidas)</th>
                                         <th className="p-3 text-right text-[9px] font-black uppercase text-rose-200">Pérdida Devolución (-)</th>
                                         <th className="p-3 text-right text-[9px] font-black uppercase bg-white/10">Stock Disponible</th>
-                                        <th className="p-3 text-right text-[9px] font-black uppercase">P. Compra Factura</th>
-                                        <th className="p-3 text-right text-[9px] font-black uppercase">P. Venta (+17%)</th>
+                                        <th className="p-3 text-right text-[9px] font-black uppercase">P. Compra (+IVA 15%)</th>
+                                        <th className="p-3 text-right text-[9px] font-black uppercase text-emerald-200">P. Venta Final</th>
                                         <th className="p-3 text-right text-[9px] font-black uppercase">Ganancia Esperada</th>
                                     </tr>
                                 </thead>
@@ -3743,8 +4318,11 @@
                                                     {p.stock} u.
                                                 </span>
                                             </td>
-                                            <td className="p-3 text-right text-slate-500 font-bold">${p.costo.toFixed(4)}</td>
-                                            <td className="p-3 text-right font-black text-[#075E54]">${p.pvd.toFixed(4)}</td>
+                                            <td className="p-3 text-right text-slate-600 font-bold">
+                                                <span>${p.costo.toFixed(4)}</span>
+                                                <span className="text-[9px] text-slate-400 block font-semibold">+15% IVA (${(p.costo * 1.15).toFixed(2)})</span>
+                                            </td>
+                                            <td className="p-3 text-right font-black text-[#075E54] text-sm">${p.pvd.toFixed(2)}</td>
                                             <td className="p-3 text-right font-black text-emerald-700">+${p.utilidad.toFixed(2)}</td>
                                         </tr>
                                     ))}
@@ -3806,10 +4384,20 @@
                                                 {/* Encabezado de la factura */}
                                                 <div className="flex justify-between items-start mb-2">
                                                     <div>
-                                                        <div className="flex items-center gap-1.5 mb-0.5">
-                                                            <span className="text-[9px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded">
-                                                                ENTRADA A BODEGA
-                                                            </span>
+                                                        <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                                                            {c.destino === '3puentes' ? (
+                                                                <span className="text-[9px] font-black uppercase bg-blue-100 text-blue-800 px-2 py-0.5 rounded border border-blue-200">
+                                                                    🏪 DESTINO: LOCAL 3 PUENTES (AL COSTO)
+                                                                </span>
+                                                            ) : c.destino === 'mixto' ? (
+                                                                <span className="text-[9px] font-black uppercase bg-purple-100 text-purple-800 px-2 py-0.5 rounded border border-purple-200">
+                                                                    ⚖️ MIXTO: ANDRÉS CÁRDENAS & LOCAL 3 PUENTES
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-[9px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200">
+                                                                    🏢 DESTINO: ANDRÉS CÁRDENAS (BODEGA)
+                                                                </span>
+                                                            )}
                                                             <span className="text-[10px] text-slate-400 font-bold">{c.fecha}</span>
                                                         </div>
                                                         <h4 className="font-black text-slate-800 text-sm uppercase italic">
@@ -3824,10 +4412,10 @@
                                                     </div>
                                                 </div>
 
-                                                {/* Detalle de los 4 items en la factura */}
+                                                {/* Detalle de los items en la factura */}
                                                 <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/70 text-xs space-y-1">
                                                     <p className="text-[9px] font-black text-slate-500 uppercase mb-1">
-                                                        Detalle de los 4 Items Ingresados:
+                                                        Items Registrados en la Factura:
                                                     </p>
                                                     {(c.items || []).map((it, idx) => (
                                                         <div key={idx} className="flex justify-between items-center text-[11px] border-b border-slate-100 last:border-0 pb-0.5">
@@ -3852,10 +4440,22 @@
 
                                             {/* Acciones y visor */}
                                             <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
-                                                <span className="text-[9px] font-black text-emerald-700 flex items-center gap-1">
-                                                    <Icon name="check-circle" size={13}/>
-                                                    <span>En Stock de Bodega</span>
-                                                </span>
+                                                {c.destino === '3puentes' ? (
+                                                    <span className="text-[9px] font-black text-blue-700 flex items-center gap-1">
+                                                        <Icon name="check-check" size={13}/>
+                                                        <span>Despachado al Costo (Cliente final dado de baja)</span>
+                                                    </span>
+                                                ) : c.destino === 'mixto' ? (
+                                                    <span className="text-[9px] font-black text-purple-700 flex items-center gap-1">
+                                                        <Icon name="check-circle" size={13}/>
+                                                        <span>Repartido (Andrés Cárdenas + Local 3 Puentes)</span>
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-[9px] font-black text-emerald-700 flex items-center gap-1">
+                                                        <Icon name="check-circle" size={13}/>
+                                                        <span>En Stock de Bodega (Andrés Cárdenas)</span>
+                                                    </span>
+                                                )}
 
                                                 <div className="flex items-center gap-1.5">
                                                     <button
@@ -4515,6 +5115,19 @@
                                                     <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md border ${estado==='cancelado'?'badge-cancelado':estado==='abonado'?'badge-abonado':'badge-pendiente'}`}>
                                                         {estado === 'cancelado' ? 'PAGADA TOTAL' : estado === 'abonado' ? 'ABONO PARCIAL' : 'PENDIENTE'}
                                                     </span>
+                                                    {c.destino === '3puentes' ? (
+                                                        <span className="text-[9px] font-black uppercase bg-blue-100 text-blue-800 px-2 py-0.5 rounded border border-blue-200">
+                                                            🏪 Destino: Local 3 Puentes (Al Costo)
+                                                        </span>
+                                                    ) : c.destino === 'mixto' ? (
+                                                        <span className="text-[9px] font-black uppercase bg-purple-100 text-purple-800 px-2 py-0.5 rounded border border-purple-200">
+                                                            ⚖️ Destino Mixto
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[9px] font-black uppercase bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded border border-emerald-200">
+                                                            🏢 Destino: Andrés Cárdenas
+                                                        </span>
+                                                    )}
                                                     <span className="text-[10px] text-slate-400 font-bold">Emisión: {c.fecha}</span>
                                                     {c.fechaVence && <span className="text-[10px] text-red-500 font-bold">Vence: {c.fechaVence}</span>}
                                                 </div>
@@ -4878,24 +5491,39 @@
                             </p>
                         </div>
 
-                        <button
-                            onClick={() => setModalC(true)}
-                            className="w-full md:w-auto px-5 py-3 bg-[#25D366] hover:bg-emerald-400 text-[#075E54] rounded-2xl font-black text-xs uppercase shadow-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98]"
-                        >
-                            <Icon name="sun" size={16}/>
-                            <span>☀️ Iniciar Día / Cargar Ruta (Mañana)</span>
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                            <button
+                                onClick={() => abrirCargaProductoBodega('3puentes')}
+                                className="flex-1 md:flex-initial px-4 py-3 bg-emerald-800 hover:bg-emerald-900 text-white rounded-2xl font-black text-xs uppercase shadow-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98] ring-2 ring-emerald-300"
+                            >
+                                <Icon name="store" size={16}/>
+                                <span>🏪 Cargar Local 3 Puentes (Al Costo)</span>
+                            </button>
+                            <button
+                                onClick={() => abrirCargaProductoBodega('andres')}
+                                className="flex-1 md:flex-initial px-5 py-3 bg-[#25D366] hover:bg-emerald-400 text-[#075E54] rounded-2xl font-black text-xs uppercase shadow-xl flex items-center justify-center gap-2 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                            >
+                                <Icon name="sun" size={16}/>
+                                <span>☀️ Cargar Andrés Cárdenas (Ruta)</span>
+                            </button>
+                        </div>
                     </div>
 
-                    {/* Selector / Filtro por las 5 Rutas */}
+                    {/* Selector / Filtro por las 5 Rutas y Local 3 Puentes */}
                     <div className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex flex-wrap gap-2 items-center justify-between">
                         <div className="flex flex-wrap items-center gap-1.5">
-                            <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Filtrar Ruta:</span>
+                            <span className="text-[10px] font-bold text-slate-400 uppercase mr-1">Filtrar:</span>
                             <button
                                 onClick={() => setFiltroRutaSeleccionada('todas')}
                                 className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all ${filtroRutaSeleccionada === 'todas' ? 'bg-[#075E54] text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                             >
-                                Todas las Rutas
+                                Todas
+                            </button>
+                            <button
+                                onClick={() => setFiltroRutaSeleccionada('local3puentes')}
+                                className={`px-3 py-1.5 rounded-xl font-bold text-xs transition-all ${filtroRutaSeleccionada === 'local3puentes' ? 'bg-emerald-700 text-white shadow-sm' : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 border border-emerald-200'}`}
+                            >
+                                🏪 Local 3 Puentes
                             </button>
                             {RUTAS_OFICIALES.map(r => (
                                 <button
@@ -4909,45 +5537,55 @@
                         </div>
 
                         <span className="text-[10px] font-black text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg">
-                            {cargas.filter(c => filtroRutaSeleccionada === 'todas' || c.rutaId === filtroRutaSeleccionada || c.ruta === filtroRutaSeleccionada).length} Cargas Registradas
+                            {cargas.filter(c => filtroRutaSeleccionada === 'todas' || c.rutaId === filtroRutaSeleccionada || c.ruta === filtroRutaSeleccionada || (filtroRutaSeleccionada === 'local3puentes' && (c.destino === 'Local 3 Puentes' || c.rutaId === 'local3puentes' || c.sinUtilidad))).length} Registros
                         </span>
                     </div>
 
-                    {/* Listado de Rutas */}
+                    {/* Listado de Rutas y Despachos */}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {cargas
-                            .filter(c => filtroRutaSeleccionada === 'todas' || c.rutaId === filtroRutaSeleccionada || c.ruta === filtroRutaSeleccionada)
+                            .filter(c => filtroRutaSeleccionada === 'todas' || c.rutaId === filtroRutaSeleccionada || c.ruta === filtroRutaSeleccionada || (filtroRutaSeleccionada === 'local3puentes' && (c.destino === 'Local 3 Puentes' || c.rutaId === 'local3puentes' || c.sinUtilidad)))
                             .map(c => {
-                                const rutaObj = RUTAS_OFICIALES.find(r => r.id === c.rutaId || r.nombre === c.ruta) || {
+                                const es3P = c.rutaId === 'local3puentes' || c.destino === 'Local 3 Puentes' || c.sinUtilidad;
+                                const rutaObj = es3P ? {
+                                    nombre: 'Local 3 Puentes',
+                                    zona: 'Venta Final al Costo (Sin Utilidad)',
+                                    badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-300',
+                                    barColor: 'border-l-emerald-600'
+                                } : (RUTAS_OFICIALES.find(r => r.id === c.rutaId || r.nombre === c.ruta) || {
                                     nombre: c.ruta || c.responsable,
                                     zona: 'Ruta General',
-                                    badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200',
-                                    barColor: 'border-l-[#128C7E]'
-                                };
+                                    badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',
+                                    barColor: 'border-l-blue-600'
+                                });
 
-                                const esActiva = c.estado === 'activa';
+                                const esActiva = c.estado === 'activa' && !es3P;
                                 const totalUnidsCargadas = (c.items || []).reduce((a, it) => a + (parseInt(it.q) || 0), 0);
                                 const totalUnidsDevueltas = (c.itemsDevueltos || []).reduce((a, it) => a + (parseInt(it.q) || 0), 0);
                                 const totalUnidsVendidas = Math.max(0, totalUnidsCargadas - totalUnidsDevueltas);
 
                                 return (
-                                    <Card key={c.id} className={`border-l-4 ${esActiva ? 'border-l-[#25D366] ring-1 ring-[#25D366]/30' : 'border-l-slate-400 opacity-95'} flex flex-col justify-between space-y-3.5 shadow-sm hover:shadow-md transition-shadow`}>
+                                    <Card key={c.id} className={`border-l-4 ${es3P ? 'border-l-emerald-600 bg-emerald-50/20' : (esActiva ? 'border-l-[#25D366] ring-1 ring-[#25D366]/30' : 'border-l-slate-400 opacity-95')} flex flex-col justify-between space-y-3.5 shadow-sm hover:shadow-md transition-shadow`}>
                                         <div>
                                             <div className="flex justify-between items-start mb-2">
                                                 <div>
                                                     <div className="flex items-center gap-1.5 mb-1">
                                                         <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded border ${rutaObj.badgeColor}`}>
-                                                            📍 {rutaObj.nombre}
+                                                            {es3P ? '🏪' : '📍'} {rutaObj.nombre}
                                                         </span>
-                                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${esActiva ? 'bg-emerald-100 text-emerald-800 animate-pulse' : 'bg-slate-100 text-slate-600'}`}>
-                                                            {esActiva ? '🚚 EN RUTA (MAÑANA)' : '🌙 CERRADA / LIQUIDADA'}
+                                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${
+                                                            es3P
+                                                                ? 'bg-emerald-200 text-emerald-900 font-extrabold'
+                                                                : (esActiva ? 'bg-emerald-100 text-emerald-800 animate-pulse' : 'bg-slate-100 text-slate-600')
+                                                        }`}>
+                                                            {es3P ? '✓ VENTA FINAL AL COSTO' : (esActiva ? '🚚 EN RUTA (MAÑANA)' : '🌙 CERRADA / LIQUIDADA')}
                                                         </span>
                                                         <span className="text-[10px] text-slate-400 font-bold">{c.fecha}</span>
                                                     </div>
                                                     <h4 className="font-black text-slate-800 text-sm uppercase italic">
-                                                        Vendedor: {c.responsable}
+                                                        {es3P ? 'Destinatario: Local 3 Puentes' : `Vendedor: ${c.responsable}`}
                                                     </h4>
-                                                    <p className="text-[10px] text-slate-400 font-medium">{rutaObj.zona}</p>
+                                                    <p className="text-[10px] text-slate-500 font-medium">{rutaObj.zona}</p>
                                                 </div>
 
                                                 <button
@@ -4990,54 +5628,107 @@
                                             </div>
 
                                             {/* Resumen financiero */}
-                                            <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 text-center text-xs">
-                                                <div className="bg-blue-50/70 p-2 rounded-xl border border-blue-100">
-                                                    <p className="text-[8px] font-bold text-blue-600 uppercase">Carga Mañana</p>
-                                                    <p className="font-black text-blue-900">${(c.totalCargado || 0).toFixed(2)}</p>
-                                                    <p className="text-[8px] text-blue-500">{totalUnidsCargadas} unids</p>
-                                                </div>
-
-                                                {!esActiva ? (
-                                                    <>
-                                                        <div className="bg-emerald-50/70 p-2 rounded-xl border border-emerald-100">
-                                                            <p className="text-[8px] font-bold text-emerald-600 uppercase">Venta Neta</p>
-                                                            <p className="font-black text-emerald-900">${(c.ventaNeta || 0).toFixed(2)}</p>
-                                                            <p className="text-[8px] text-emerald-600">{totalUnidsVendidas} vendidas</p>
-                                                        </div>
-                                                        <div className="bg-slate-100 p-2 rounded-xl border border-slate-200">
-                                                            <p className="text-[8px] font-bold text-slate-500 uppercase">Depositado</p>
-                                                            <p className="font-black text-slate-800">${(c.totalADepositar || 0).toFixed(2)}</p>
-                                                            <p className="text-[8px] text-slate-400">En caja</p>
-                                                        </div>
-                                                    </>
-                                                ) : (
-                                                    <div className="bg-amber-50 p-2 rounded-xl border border-amber-200 col-span-1 sm:col-span-2 flex items-center justify-center text-amber-800 text-[10px] font-bold">
-                                                        <span>🚚 Camión en distribución en la ruta...</span>
+                                            {es3P ? (
+                                                <div className="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-center text-xs">
+                                                    <div className="bg-emerald-50/90 p-2 rounded-xl border border-emerald-200">
+                                                        <p className="text-[8px] font-bold text-emerald-700 uppercase">Factura Venta Polaca</p>
+                                                        <p className="font-black text-emerald-950 text-xs truncate font-mono">{obtenerNumeroFacturaPolaca(c)}</p>
+                                                        <p className="text-[8px] text-emerald-600">{totalUnidsCargadas} unids al costo+IVA</p>
                                                     </div>
-                                                )}
-                                            </div>
+                                                    <div className="bg-emerald-50/90 p-2 rounded-xl border border-emerald-200">
+                                                        <p className="text-[8px] font-bold text-emerald-700 uppercase">Total Facturado (Costo+IVA)</p>
+                                                        <p className="font-black text-emerald-950 text-sm">
+                                                            ${(c.totalConIva || (c.items && c.items.length > 0 ? c.items.reduce((acc, it) => acc + ((parseInt(it.q) || 0) * Number(it.costoConIva || (Number(it.costo || 0) * 1.15))), 0) : (c.totalCargado || c.totalVenta || 0))).toFixed(2)}
+                                                        </p>
+                                                        <p className="text-[8px] text-emerald-600">
+                                                            Base: ${(c.totalSinIva || (c.items && c.items.length > 0 ? c.items.reduce((acc, it) => acc + ((parseInt(it.q) || 0) * Number(it.costo || 0)), 0) : (c.totalCosto || 0))).toFixed(2)}
+                                                        </p>
+                                                    </div>
+                                                    <div className="bg-slate-50 p-2 rounded-xl border border-slate-200">
+                                                        <p className="text-[8px] font-bold text-slate-500 uppercase">Utilidad Bruta</p>
+                                                        <p className="font-black text-slate-700 text-sm">$0.00</p>
+                                                        <p className="text-[8px] text-slate-400">Sin ganancia comercial</p>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-2 text-center text-xs">
+                                                    <div className="bg-blue-50/70 p-2 rounded-xl border border-blue-100">
+                                                        <p className="text-[8px] font-bold text-blue-600 uppercase">Carga Mañana</p>
+                                                        <p className="font-black text-blue-900">${(c.totalCargado || 0).toFixed(2)}</p>
+                                                        <p className="text-[8px] text-blue-500">{totalUnidsCargadas} unids</p>
+                                                    </div>
+
+                                                    {!esActiva ? (
+                                                        <>
+                                                            <div className="bg-emerald-50/70 p-2 rounded-xl border border-emerald-100">
+                                                                <p className="text-[8px] font-bold text-emerald-600 uppercase">Venta Neta</p>
+                                                                <p className="font-black text-emerald-900">${(c.ventaNeta || 0).toFixed(2)}</p>
+                                                                <p className="text-[8px] text-emerald-600">{totalUnidsVendidas} vendidas</p>
+                                                            </div>
+                                                            <div className="bg-slate-100 p-2 rounded-xl border border-slate-200">
+                                                                <p className="text-[8px] font-bold text-slate-500 uppercase">Depositado</p>
+                                                                <p className="font-black text-slate-800">${(c.totalADepositar || 0).toFixed(2)}</p>
+                                                                <p className="text-[8px] text-slate-400">En caja</p>
+                                                            </div>
+                                                        </>
+                                                    ) : (
+                                                        <div className="bg-amber-50 p-2 rounded-xl border border-amber-200 col-span-1 sm:col-span-2 flex items-center justify-center text-amber-800 text-[10px] font-bold">
+                                                            <span>🚚 Camión en distribución en la ruta...</span>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
                                         </div>
 
                                         {/* Botón de acción */}
                                         <div className="pt-2 border-t border-slate-100 flex justify-between items-center text-xs">
-                                            {esActiva ? (
-                                                <button
-                                                    onClick={() => abrirModalCierreDiario(c)}
-                                                    className="w-full py-2.5 bg-gradient-to-r from-[#075E54] to-[#128C7E] hover:from-[#064e46] hover:to-[#0f766e] text-white rounded-xl font-black text-xs uppercase shadow-md flex items-center justify-center gap-2 transition-all hover:scale-[1.01]"
-                                                >
-                                                    <Icon name="moon" size={15}/>
-                                                    <span>🌙 Hacer Cierre Diario / Devolución de la Noche</span>
-                                                </button>
-                                            ) : (
-                                                <div className="w-full flex justify-between items-center text-[10px]">
-                                                    <span className="text-emerald-700 font-bold flex items-center gap-1">
-                                                        <Icon name="check-circle-2" size={13}/>
-                                                        <span>Cierre completado el {c.fechaLiquidacion || c.fecha}</span>
-                                                    </span>
-                                                    <span className="font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
-                                                        {totalUnidsDevueltas} u. devueltas a bodega
-                                                    </span>
+                                            {es3P ? (
+                                                <div className="w-full flex flex-col sm:flex-row justify-between items-center gap-2 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 text-[10px]">
+                                                    <div className="flex items-center gap-1.5 text-emerald-900 font-bold">
+                                                        <Icon name="check-circle-2" size={14} className="text-emerald-700"/>
+                                                        <span>Venta final al costo + 15% IVA ($0 utilidad) • Factura Venta Polaca: <strong className="font-mono">{obtenerNumeroFacturaPolaca(c)}</strong></span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5 w-full sm:w-auto">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setModalFactura3P(c)}
+                                                            className="flex-1 sm:flex-initial flex items-center justify-center gap-1 px-2.5 py-1.5 bg-white hover:bg-slate-100 text-slate-700 font-black rounded-lg border border-slate-200 shadow-sm"
+                                                            title="Ver e imprimir recibo de factura"
+                                                        >
+                                                            <Icon name="printer" size={13}/>
+                                                            <span>Ver / Imprimir</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => descargarPDFFactura3Puentes(c)}
+                                                            className="flex-1 sm:flex-initial flex items-center justify-center gap-1 px-3 py-1.5 bg-emerald-700 hover:bg-emerald-800 text-white font-black rounded-lg shadow-sm"
+                                                            title="Descargar factura oficial en PDF"
+                                                        >
+                                                            <Icon name="download" size={13}/>
+                                                            <span>Descargar PDF</span>
+                                                        </button>
+                                                    </div>
                                                 </div>
+                                            ) : (
+                                                esActiva ? (
+                                                    <button
+                                                        onClick={() => abrirModalCierreDiario(c)}
+                                                        className="w-full py-2.5 bg-gradient-to-r from-[#075E54] to-[#128C7E] hover:from-[#064e46] hover:to-[#0f766e] text-white rounded-xl font-black text-xs uppercase shadow-md flex items-center justify-center gap-2 transition-all hover:scale-[1.01]"
+                                                    >
+                                                        <Icon name="moon" size={15}/>
+                                                        <span>🌙 Hacer Cierre Diario / Devolución de la Noche</span>
+                                                    </button>
+                                                ) : (
+                                                    <div className="w-full flex justify-between items-center text-[10px]">
+                                                        <span className="text-emerald-700 font-bold flex items-center gap-1">
+                                                            <Icon name="check-circle-2" size={13}/>
+                                                            <span>Cierre completado el {c.fechaLiquidacion || c.fecha}</span>
+                                                        </span>
+                                                        <span className="font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded">
+                                                            {totalUnidsDevueltas} u. devueltas a bodega
+                                                        </span>
+                                                    </div>
+                                                )
                                             )}
                                         </div>
                                     </Card>
@@ -5128,7 +5819,7 @@
                                     Balance Mensual: Ventas vs. Compras, Gastos y Ganancias
                                 </h2>
                                 <p className="text-xs text-slate-500 font-semibold mt-0.5">
-                                    Cálculo de utilidad neta en tiempo real, punto de equilibrio dinámico, ventas vs. compras, caducados y amortización de créditos ($381.96 Vehículo y $96.97 Crédito 2 años).
+                                    Cálculo de utilidad neta en tiempo real, punto de equilibrio dinámico, ventas vs. compras, caducados y costos operativos (Vehículo utilitario $381.96 / mes).
                                 </p>
                             </div>
                         </div>
@@ -5402,9 +6093,10 @@
                     </div>
 
                     {/* ═══════════════════════════════════════════════════════
-                        SECCIÓN: CONTROL DE AMORTIZACIÓN Y CUOTAS DE CRÉDITO
-                        (Vehículo 36 meses y Crédito 2 años 24 meses)
-                    ═══════════════════════════════════════════════════════ */}
+                        {/* ═══════════════════════════════════════════════════════
+                            SECCIÓN: CONTROL DE FINANCIAMIENTO Y COSTOS FIJOS OPERATIVOS
+                            (Vehículo 36 meses: $381.96 | Costos Fijos: $645.00)
+                        ═══════════════════════════════════════════════════════ */}
                     <div className="oneui-card p-6 border-2 border-indigo-200 bg-gradient-to-br from-indigo-50/40 via-white to-purple-50/30 shadow-sm rounded-[24px]">
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 pb-4 border-b border-indigo-100">
                             <div className="flex items-center gap-3">
@@ -5413,16 +6105,16 @@
                                 </div>
                                 <div>
                                     <h3 className="font-black text-slate-800 text-base uppercase tracking-tight">
-                                        Seguimiento de Cuotas de Créditos y Amortización
+                                        Seguimiento de Cuota Vehículo & Costos Operativos
                                     </h3>
                                     <p className="text-xs text-indigo-700 font-semibold">
-                                        Anota a qué cuota corresponde cada mes. Se deduce automáticamente en el balance mensual de gastos.
+                                        Vehículo utilitario ($381.96) y costos fijos de ruta ($645.00). Cuota de $96.97 y parqueo eliminados.
                                     </p>
                                 </div>
                             </div>
 
                             <span className="px-3 py-1 bg-indigo-100 text-indigo-800 text-xs font-black rounded-xl">
-                                Total Créditos: $478.93 / mes
+                                Total Gastos Fijos: $1,026.96 / mes
                             </span>
                         </div>
 
@@ -5504,79 +6196,51 @@
                                 </div>
                             </div>
 
-                            {/* CRÉDITO 2: OTRO CRÉDITO A 2 AÑOS (24 MESES) */}
-                            <div className="p-5 bg-white rounded-2xl border-2 border-purple-200 shadow-sm flex flex-col justify-between">
+                            {/* COSTOS FIJOS OPERATIVOS MENSUALES ACTUALIZADOS ($645.00) */}
+                            <div className="p-5 bg-white rounded-2xl border-2 border-emerald-200 shadow-sm flex flex-col justify-between">
                                 <div>
                                     <div className="flex justify-between items-start">
                                         <div className="flex items-center gap-2">
-                                            <div className="p-2 bg-purple-100 text-purple-700 rounded-xl">
-                                                <Icon name="credit-card" size={18}/>
+                                            <div className="p-2 bg-emerald-100 text-emerald-700 rounded-xl">
+                                                <Icon name="receipt" size={18}/>
                                             </div>
                                             <div>
-                                                <h4 className="font-black text-sm text-slate-800 uppercase">2. Crédito Operativo (2 Años)</h4>
-                                                <span className="text-[11px] font-bold text-purple-600">Plazo total: 24 Meses (2 años)</span>
+                                                <h4 className="font-black text-sm text-slate-800 uppercase">2. Costos Fijos Operativos</h4>
+                                                <span className="text-[11px] font-bold text-emerald-600">Gasolina, Alimentación, Hoteles y Mantenimiento</span>
                                             </div>
                                         </div>
                                         <div className="text-right">
-                                            <span className="text-xl font-black text-purple-700">$96.97</span>
+                                            <span className="text-xl font-black text-emerald-700">$645.00</span>
                                             <span className="text-[10px] text-slate-500 font-bold block">/ mes</span>
                                         </div>
                                     </div>
 
-                                    {/* SELECTOR DE NÚMERO DE CUOTA */}
-                                    <div className="mt-4 p-3 bg-purple-50/60 rounded-xl border border-purple-100 flex items-center justify-between">
-                                        <span className="text-xs font-bold text-slate-700">Cuota Seleccionada:</span>
-                                        <div className="flex items-center gap-2">
-                                            <button
-                                                type="button"
-                                                onClick={() => cambiarCuotaCredito(cuotaCreditoNumero - 1)}
-                                                disabled={cuotaCreditoNumero <= 1}
-                                                className="w-7 h-7 flex items-center justify-center rounded-lg bg-white border border-purple-200 text-purple-700 font-black text-xs hover:bg-purple-100 disabled:opacity-40 transition-all"
-                                                title="Mes anterior"
-                                            >
-                                                ◀
-                                            </button>
-                                            <div className="flex items-center gap-1 font-black text-sm text-slate-800 bg-white px-3 py-1 rounded-lg border border-purple-200">
-                                                <span>Cuota</span>
-                                                <select
-                                                    value={cuotaCreditoNumero}
-                                                    onChange={e => cambiarCuotaCredito(e.target.value)}
-                                                    className="font-black text-purple-700 bg-transparent outline-none cursor-pointer"
-                                                >
-                                                    {Array.from({ length: 24 }, (_, i) => i + 1).map(n => (
-                                                        <option key={n} value={n}>#{n}</option>
-                                                    ))}
-                                                </select>
-                                                <span className="text-slate-500">de 24</span>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => cambiarCuotaCredito(cuotaCreditoNumero + 1)}
-                                                disabled={cuotaCreditoNumero >= 24}
-                                                className="w-7 h-7 flex items-center justify-center rounded-lg bg-white border border-purple-200 text-purple-700 font-black text-xs hover:bg-purple-100 disabled:opacity-40 transition-all"
-                                                title="Siguiente mes"
-                                            >
-                                                ▶
-                                            </button>
+                                    <div className="mt-4 p-3 bg-emerald-50/60 rounded-xl border border-emerald-100 space-y-1.5 text-xs">
+                                        <div className="flex justify-between items-center text-[11px] font-semibold text-slate-700">
+                                            <span>⛽ Gasolina (Combustible Rutas):</span>
+                                            <strong className="text-slate-900 font-black">$280.00</strong>
+                                        </div>
+                                        <div className="flex justify-between items-center text-[11px] font-semibold text-slate-700">
+                                            <span>🍲 Alimentación en Ruta:</span>
+                                            <strong className="text-slate-900 font-black">$80.00</strong>
+                                        </div>
+                                        <div className="flex justify-between items-center text-[11px] font-semibold text-slate-700">
+                                            <span>🔧 Mantenimiento Preventivo:</span>
+                                            <strong className="text-slate-900 font-black">$120.00</strong>
+                                        </div>
+                                        <div className="flex justify-between items-center text-[11px] font-semibold text-slate-700">
+                                            <span>🏨 Hospedajes en Hoteles:</span>
+                                            <strong className="text-slate-900 font-black">$100.00</strong>
+                                        </div>
+                                        <div className="flex justify-between items-center text-[11px] font-semibold text-slate-700">
+                                            <span>👥 Ayudante Ruta ($50) + 🌐 Internet ($15):</span>
+                                            <strong className="text-slate-900 font-black">$65.00</strong>
                                         </div>
                                     </div>
 
-                                    {/* PROGRESO Y TOTALES */}
-                                    <div className="mt-4 space-y-2">
-                                        <div className="flex justify-between text-[11px] font-bold">
-                                            <span className="text-slate-500">Amortizado ({((cuotaCreditoNumero / 24) * 100).toFixed(1)}%):</span>
-                                            <span className="text-slate-800">${(96.97 * cuotaCreditoNumero).toFixed(2)} de $2,327.28</span>
-                                        </div>
-                                        <div className="w-full bg-slate-100 h-2.5 rounded-full overflow-hidden">
-                                            <div
-                                                className="h-full bg-gradient-to-r from-purple-500 to-pink-600 rounded-full transition-all"
-                                                style={{ width: `${(cuotaCreditoNumero / 24) * 100}%` }}
-                                            />
-                                        </div>
-                                        <div className="flex justify-between text-[11px] text-slate-500 font-semibold pt-1">
-                                            <span>Saldo pendiente: ${(96.97 * (24 - cuotaCreditoNumero)).toFixed(2)}</span>
-                                            <span className="text-purple-700 font-bold">{24 - cuotaCreditoNumero} meses restantes</span>
-                                        </div>
+                                    <div className="mt-3 p-2 bg-slate-50 rounded-xl border border-slate-200 text-[10px] text-slate-600 font-bold flex items-center justify-between">
+                                        <span>🚫 Crédito $96.97 y Parqueo $30:</span>
+                                        <span className="text-emerald-700 uppercase font-black">Eliminados ($0.00)</span>
                                     </div>
                                 </div>
                             </div>
@@ -5594,11 +6258,11 @@
                                         <Icon name="receipt" size={20}/>
                                     </span>
                                     <h3 className="font-black text-slate-800 text-base sm:text-lg uppercase tracking-tight">
-                                        Cuadro de Gastos Mensuales y Costos Fijos ($1,249.93)
+                                        Cuadro de Gastos Mensuales y Costos Fijos ($1,026.96)
                                     </h3>
                                 </div>
                                 <p className="text-xs text-slate-500 font-medium mt-1">
-                                    Estructura operativa actualizada de AustroPolaca: Créditos, combustible, mantenimiento, hospedajes, alimentación y logística.
+                                    Estructura operativa de AustroPolaca: Crédito vehículo, combustible ($280), mantenimiento, hospedajes, alimentación ($80) y logística.
                                 </p>
                             </div>
 
@@ -5657,39 +6321,24 @@
                                         <td className="p-3 text-right font-black text-slate-900">$381.96</td>
                                     </tr>
 
-                                    {/* 2. Otro Crédito a 2 años plazo */}
+                                    {/* 2. Gasolina */}
                                     <tr className="hover:bg-slate-50/70">
                                         <td className="p-3 font-black text-slate-400">2</td>
-                                        <td className="p-3">
-                                            <div className="flex items-center gap-2">
-                                                <div className="p-1.5 rounded-lg bg-purple-50 text-purple-700"><Icon name="credit-card" size={14}/></div>
-                                                <strong className="text-slate-800">Crédito Operativo (2 Años)</strong>
-                                            </div>
-                                        </td>
-                                        <td className="p-3 text-slate-500">Amortización de crédito comercial / capital a 2 años plazo (24 meses). Cuota #{cuotaCreditoNumero} de 24.</td>
-                                        <td className="p-3 text-center"><span className="bg-purple-50 text-purple-700 px-2 py-0.5 rounded text-[10px] font-black">Cuota {cuotaCreditoNumero}/24</span></td>
-                                        <td className="p-3 text-right text-slate-500">~${(96.97 / diasRutaMes).toFixed(2)}/día</td>
-                                        <td className="p-3 text-right font-black text-slate-900">$96.97</td>
-                                    </tr>
-
-                                    {/* 3. Gasolina */}
-                                    <tr className="hover:bg-slate-50/70">
-                                        <td className="p-3 font-black text-slate-400">3</td>
                                         <td className="p-3">
                                             <div className="flex items-center gap-2">
                                                 <div className="p-1.5 rounded-lg bg-amber-50 text-amber-700"><Icon name="fuel" size={14}/></div>
                                                 <strong className="text-slate-800">Gasolina / Combustible</strong>
                                             </div>
                                         </td>
-                                        <td className="p-3 text-slate-500">Combustible mensual para recorridos en las 5 rutas oficiales</td>
+                                        <td className="p-3 text-slate-500">Combustible mensual para recorridos en las 5 rutas oficiales (presupuesto ajustado)</td>
                                         <td className="p-3 text-center"><span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-bold">Mensual</span></td>
-                                        <td className="p-3 text-right text-slate-500">~${(360 / diasRutaMes).toFixed(2)}/día</td>
-                                        <td className="p-3 text-right font-black text-slate-900">$360.00</td>
+                                        <td className="p-3 text-right text-slate-500">~${(280 / diasRutaMes).toFixed(2)}/día</td>
+                                        <td className="p-3 text-right font-black text-slate-900">$280.00</td>
                                     </tr>
 
-                                    {/* 4. Mantenimiento vehículo */}
+                                    {/* 3. Mantenimiento vehículo */}
                                     <tr className="hover:bg-slate-50/70">
-                                        <td className="p-3 font-black text-slate-400">4</td>
+                                        <td className="p-3 font-black text-slate-400">3</td>
                                         <td className="p-3">
                                             <div className="flex items-center gap-2">
                                                 <div className="p-1.5 rounded-lg bg-cyan-50 text-cyan-700"><Icon name="wrench" size={14}/></div>
@@ -5702,9 +6351,9 @@
                                         <td className="p-3 text-right font-black text-slate-900">$120.00</td>
                                     </tr>
 
-                                    {/* 5. Hoteles */}
+                                    {/* 4. Hoteles */}
                                     <tr className="hover:bg-slate-50/70">
-                                        <td className="p-3 font-black text-slate-400">5</td>
+                                        <td className="p-3 font-black text-slate-400">4</td>
                                         <td className="p-3">
                                             <div className="flex items-center gap-2">
                                                 <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-700"><Icon name="hotel" size={14}/></div>
@@ -5717,9 +6366,9 @@
                                         <td className="p-3 text-right font-black text-slate-900">$100.00</td>
                                     </tr>
 
-                                    {/* 6. Alimentación */}
+                                    {/* 5. Alimentación */}
                                     <tr className="hover:bg-slate-50/70">
-                                        <td className="p-3 font-black text-slate-400">6</td>
+                                        <td className="p-3 font-black text-slate-400">5</td>
                                         <td className="p-3">
                                             <div className="flex items-center gap-2">
                                                 <div className="p-1.5 rounded-lg bg-orange-50 text-orange-700"><Icon name="utensils" size={14}/></div>
@@ -5728,13 +6377,13 @@
                                         </td>
                                         <td className="p-3 text-slate-500">Presupuesto mensual fijo de viáticos de comida para las jornadas de distribución</td>
                                         <td className="p-3 text-center"><span className="bg-orange-50 text-orange-700 px-2 py-0.5 rounded text-[10px] font-black">Mensual Fijo</span></td>
-                                        <td className="p-3 text-right text-slate-700 font-bold">~${(96 / diasRutaMes).toFixed(2)}/día</td>
-                                        <td className="p-3 text-right font-black text-slate-900">$96.00</td>
+                                        <td className="p-3 text-right text-slate-700 font-bold">~${(80 / diasRutaMes).toFixed(2)}/día</td>
+                                        <td className="p-3 text-right font-black text-slate-900">$80.00</td>
                                     </tr>
 
-                                    {/* 7. Ayudante de Ruta */}
+                                    {/* 6. Ayudante de Ruta */}
                                     <tr className="hover:bg-slate-50/70">
-                                        <td className="p-3 font-black text-slate-400">7</td>
+                                        <td className="p-3 font-black text-slate-400">6</td>
                                         <td className="p-3">
                                             <div className="flex items-center gap-2">
                                                 <div className="p-1.5 rounded-lg bg-emerald-50 text-emerald-700"><Icon name="users" size={14}/></div>
@@ -5747,24 +6396,9 @@
                                         <td className="p-3 text-right font-black text-slate-900">$50.00</td>
                                     </tr>
 
-                                    {/* 8. Parqueo */}
+                                    {/* 7. Plan Internet */}
                                     <tr className="hover:bg-slate-50/70">
-                                        <td className="p-3 font-black text-slate-400">8</td>
-                                        <td className="p-3">
-                                            <div className="flex items-center gap-2">
-                                                <div className="p-1.5 rounded-lg bg-teal-50 text-teal-700"><Icon name="car" size={14}/></div>
-                                                <strong className="text-slate-800">Parqueo / Estacionamiento</strong>
-                                            </div>
-                                        </td>
-                                        <td className="p-3 text-slate-500">Parqueo mensual para resguardo seguro del furgón de reparto</td>
-                                        <td className="p-3 text-center"><span className="bg-slate-100 px-2 py-0.5 rounded text-[10px] font-bold">Mensual</span></td>
-                                        <td className="p-3 text-right text-slate-500">-</td>
-                                        <td className="p-3 text-right font-black text-slate-900">$30.00</td>
-                                    </tr>
-
-                                    {/* 9. Plan Internet */}
-                                    <tr className="hover:bg-slate-50/70">
-                                        <td className="p-3 font-black text-slate-400">9</td>
+                                        <td className="p-3 font-black text-slate-400">7</td>
                                         <td className="p-3">
                                             <div className="flex items-center gap-2">
                                                 <div className="p-1.5 rounded-lg bg-rose-50 text-rose-700"><Icon name="wifi" size={14}/></div>
@@ -5817,20 +6451,12 @@
                                 <span className="font-black text-blue-800">-$381.96</span>
                             </div>
 
-                            <div className="flex justify-between items-center p-3 bg-purple-50/70 rounded-xl border border-purple-200 text-xs">
-                                <div className="flex items-center gap-2">
-                                    <Icon name="credit-card" size={16} className="text-purple-700"/>
-                                    <span className="font-bold text-purple-900">Crédito Operativo (Cuota #{cuotaCreditoNumero} de 24 meses)</span>
-                                </div>
-                                <span className="font-black text-purple-800">-$96.97</span>
-                            </div>
-
                             <div className="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-200/80 text-xs">
                                 <div className="flex items-center gap-2">
                                     <Icon name="fuel" size={16} className="text-amber-600"/>
-                                    <span className="font-bold text-slate-700">Costos Fijos Operativos (Gasolina, Mant., Hoteles, Comida, Ayudante, Parqueo, Internet)</span>
+                                    <span className="font-bold text-slate-700">Costos Fijos Operativos (Gasolina $280, Mant. $120, Hoteles $100, Comida $80, Ayudante $50, Internet $15)</span>
                                 </div>
-                                <span className="font-black text-slate-800">-$770.99</span>
+                                <span className="font-black text-slate-800">-$645.00</span>
                             </div>
 
                             <div className="flex justify-between items-center p-3 bg-rose-50/70 rounded-xl border border-rose-200 text-xs">
@@ -6224,6 +6850,118 @@
                                     onChange={e => setFormDocCompra({...formDocCompra, fechaVence: e.target.value})}
                                 />
                             </div>
+                        </div>
+
+                        {/* SELECTOR DE LOS 2 DESTINOS OFICIALES DE LA FACTURA */}
+                        <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200 space-y-2.5">
+                            <div className="flex items-center justify-between">
+                                <label className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                                    <Icon name="navigation" size={14} className="text-[#075E54]"/>
+                                    <span>Destino Oficial de la Factura (2 Destinos):</span>
+                                </label>
+                                <span className="text-[9px] font-bold text-slate-500">
+                                    {(formDocCompra.destino || 'andres') === '3puentes' ? '🏷️ Despacho al Costo ($0 Utilidad)' : '📦 Ingreso a Bodega'}
+                                </span>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormDocCompra({ ...formDocCompra, destino: 'andres' })}
+                                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                                        (formDocCompra.destino || 'andres') === 'andres'
+                                            ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-300'
+                                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-black text-xs uppercase">1. Andrés Cárdenas</span>
+                                        {(formDocCompra.destino || 'andres') === 'andres' && <Icon name="check" size={14}/>}
+                                    </div>
+                                    <p className={`text-[10px] mt-1 ${ (formDocCompra.destino || 'andres') === 'andres' ? 'text-blue-100' : 'text-slate-500' }`}>
+                                        Ingresa a bodega con margen/utilidad normal y seguimiento activo.
+                                    </p>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setFormDocCompra({ ...formDocCompra, destino: '3puentes' })}
+                                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                                        formDocCompra.destino === '3puentes'
+                                            ? 'bg-emerald-700 text-white border-emerald-700 shadow-md ring-2 ring-emerald-300'
+                                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-black text-xs uppercase">2. Local 3 Puentes</span>
+                                        {formDocCompra.destino === '3puentes' && <Icon name="check" size={14}/>}
+                                    </div>
+                                    <p className={`text-[10px] mt-1 ${ formDocCompra.destino === '3puentes' ? 'text-emerald-100' : 'text-slate-500' }`}>
+                                        Sin utilidad, al precio de compra. Dado de baja como cliente final.
+                                    </p>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setFormDocCompra({ ...formDocCompra, destino: 'mixto' })}
+                                    className={`p-2.5 rounded-xl border text-left transition-all ${
+                                        formDocCompra.destino === 'mixto'
+                                            ? 'bg-purple-700 text-white border-purple-700 shadow-md ring-2 ring-purple-300'
+                                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-black text-xs uppercase">Ambos / Mixto</span>
+                                        {formDocCompra.destino === 'mixto' && <Icon name="check" size={14}/>}
+                                    </div>
+                                    <p className={`text-[10px] mt-1 ${ formDocCompra.destino === 'mixto' ? 'text-purple-100' : 'text-slate-500' }`}>
+                                        Dividir unidades entre Local 3 Puentes y Andrés Cárdenas.
+                                    </p>
+                                </button>
+                            </div>
+
+                            {formDocCompra.destino === '3puentes' && (
+                                <div className="p-2.5 bg-emerald-100/90 border border-emerald-300 rounded-xl text-[10px] text-emerald-900 font-bold flex items-start gap-2">
+                                    <span className="text-base leading-none">✓</span>
+                                    <span>
+                                        <strong>Regla de negocio activada:</strong> Este pedido se envía <strong>sin utilidad al precio exacto de compra</strong>. Se dará de baja automáticamente como cliente final en los registros y <strong>ya no requiere seguimiento</strong>.
+                                    </span>
+                                </div>
+                            )}
+
+                            {(formDocCompra.destino || 'andres') === 'andres' && (
+                                <div className="p-2 bg-blue-50 border border-blue-200 rounded-xl text-[10px] text-blue-800 font-medium">
+                                    ℹ️ <strong>Destino Andrés Cárdenas:</strong> La mercadería se mantiene exacta, ingresando a stock para su posterior venta con margen de utilidad en las 5 rutas oficiales.
+                                </div>
+                            )}
+
+                            {formDocCompra.destino === 'mixto' && (
+                                <div className="p-2.5 bg-purple-50 border border-purple-200 rounded-xl text-[10px] text-purple-900 font-bold space-y-1.5">
+                                    <p>Indica las unidades asignadas a <strong>Local 3 Puentes (sin utilidad / al costo)</strong>. El remanente quedará en bodega para <strong>Andrés Cárdenas</strong>:</p>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                                        {formDocCompra.items.map(it => (
+                                            <div key={it.id} className="bg-white p-1.5 rounded-lg border border-purple-200">
+                                                <span className="text-[9px] font-bold text-slate-700 block truncate">{it.nombre}</span>
+                                                <input
+                                                    type="number"
+                                                    min="0"
+                                                    max={it.q || 0}
+                                                    placeholder="0 u."
+                                                    value={formDocCompra.q3Puentes?.[it.id] ?? ''}
+                                                    onChange={e => {
+                                                        const val = parseInt(e.target.value) || 0;
+                                                        setFormDocCompra({
+                                                            ...formDocCompra,
+                                                            q3Puentes: { ...(formDocCompra.q3Puentes || {}), [it.id]: val }
+                                                        });
+                                                    }}
+                                                    className="w-full mt-0.5 p-1 text-center font-black text-xs border rounded outline-none"
+                                                />
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* DETALLE DE LOS 4 ITEMS QUE SE COMERCIALIZAN PARA QUE APAREZCAN EN BODEGA */}
@@ -7003,141 +7741,570 @@
             {modalC && (
             <div className="fixed inset-0 bg-slate-900/80 z-[200] overflow-y-auto backdrop-blur-sm p-2 sm:p-4 flex items-end sm:items-center justify-center">
                 <div className="bg-white w-full max-w-xl rounded-3xl flex flex-col shadow-2xl overflow-hidden fade-in text-xs">
-                    <div className="p-4 border-b flex justify-between items-center bg-gradient-to-r from-emerald-50 to-teal-50 border-emerald-100">
+                    <div className={`p-4 border-b flex justify-between items-center ${
+                        formC.destinoCarga === '3puentes'
+                            ? 'bg-gradient-to-r from-emerald-100 via-teal-50 to-emerald-50 border-emerald-200'
+                            : 'bg-gradient-to-r from-blue-50 via-teal-50 to-indigo-50 border-blue-200'
+                    }`}>
                         <div>
                             <div className="flex items-center gap-1.5 mb-0.5">
-                                <span className="text-[9px] font-black text-emerald-800 uppercase bg-emerald-200 px-2 py-0.5 rounded-md">
-                                    Carga de la Mañana (AM)
+                                <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-md ${
+                                    formC.destinoCarga === '3puentes' ? 'text-emerald-900 bg-emerald-200' : 'text-blue-900 bg-blue-200'
+                                }`}>
+                                    {formC.destinoCarga === '3puentes' ? '🏪 Venta Final al Costo' : '🚚 Distribución Comercial'}
                                 </span>
-                                <span className="text-[9px] font-black text-slate-500 bg-slate-100 px-2 py-0.5 rounded-md">
-                                    Arrancar el Día
+                                <span className="text-[9px] font-black text-slate-500 bg-white/80 px-2 py-0.5 rounded-md border border-slate-200">
+                                    Salida de Bodega
                                 </span>
                             </div>
-                            <h3 className="font-black uppercase text-xs text-slate-800 tracking-wider">
-                                Despacho a Ruta — Avena Polaca
+                            <h3 className="font-black uppercase text-sm text-slate-800 tracking-wider">
+                                {formC.destinoCarga === '3puentes'
+                                    ? 'Cargar Producto a Local 3 Puentes (Al Costo)'
+                                    : 'Cargar Producto a Andrés Cárdenas (Rutas)'}
                             </h3>
                         </div>
                         <button onClick={() => setModalC(false)} className="p-1 text-slate-400 hover:text-slate-600"><Icon name="x" size={18}/></button>
                     </div>
 
                     <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar">
-                        {/* Selector de las 5 Rutas */}
-                        <div>
-                            <label className="text-[9px] font-black text-slate-700 uppercase block mb-1.5 flex items-center justify-between">
-                                <span>Seleccionar Ruta Oficial (5 Rutas) *</span>
-                                <span className="text-[8px] text-emerald-700 font-bold">Obligatorio</span>
+                        {/* SELECTOR OBLIGATORIO DE LOS 2 DESTINOS OFICIALES DE BODEGA */}
+                        <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200 space-y-2">
+                            <label className="text-[10px] font-black text-slate-700 uppercase tracking-wider flex items-center gap-1.5">
+                                <Icon name="navigation" size={14} className="text-[#075E54]"/>
+                                <span>Seleccionar Destino de la Carga de Bodega:</span>
                             </label>
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-                                {RUTAS_OFICIALES.map(r => (
-                                    <button
-                                        type="button"
-                                        key={r.id}
-                                        onClick={() => setFormC({...formC, ruta: r.id})}
-                                        className={`p-2.5 rounded-xl border text-left transition-all ${formC.ruta === r.id ? 'border-[#128C7E] bg-emerald-50/80 shadow-sm ring-1 ring-[#128C7E]' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}
-                                    >
-                                        <p className="font-black text-slate-800 text-xs uppercase flex items-center justify-between">
-                                            <span>{r.nombre}</span>
-                                            {formC.ruta === r.id && <Icon name="check" size={12} className="text-[#128C7E]"/>}
-                                        </p>
-                                        <p className="text-[9px] text-slate-400 truncate mt-0.5">{r.zona}</p>
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Vendedor / Responsable</label>
-                                <select
-                                    className="w-full p-2.5 bg-slate-50 rounded-xl font-black text-xs border border-slate-200 outline-none text-[#128C7E]"
-                                    value={formC.ven}
-                                    onChange={e => setFormC({...formC, ven: e.target.value})}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormC({
+                                        ...formC,
+                                        destinoCarga: 'andres',
+                                        ruta: formC.ruta === 'local3puentes' ? 'canar1' : formC.ruta,
+                                        ven: formC.ven === 'Local 3 Puentes' ? VENDEDORES[0] : formC.ven
+                                    })}
+                                    className={`p-3 rounded-xl border text-left transition-all ${
+                                        (formC.destinoCarga || 'andres') === 'andres'
+                                            ? 'bg-blue-600 text-white border-blue-600 shadow-md ring-2 ring-blue-300'
+                                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                    }`}
                                 >
-                                    {VENDEDORES.map((v, i) => <option key={i} value={v}>{v}</option>)}
-                                </select>
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-black text-xs uppercase flex items-center gap-1.5">
+                                            <Icon name="truck" size={14}/>
+                                            <span>1. Andrés Cárdenas</span>
+                                        </span>
+                                        {(formC.destinoCarga || 'andres') === 'andres' && <Icon name="check" size={14}/>}
+                                    </div>
+                                    <p className={`text-[10px] mt-1 ${ (formC.destinoCarga || 'andres') === 'andres' ? 'text-blue-100' : 'text-slate-500' }`}>
+                                        Carga habitual para las 5 rutas oficiales con margen comercial y seguimiento.
+                                    </p>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => setFormC({
+                                        ...formC,
+                                        destinoCarga: '3puentes',
+                                        ruta: 'local3puentes',
+                                        ven: 'Local 3 Puentes'
+                                    })}
+                                    className={`p-3 rounded-xl border text-left transition-all ${
+                                        formC.destinoCarga === '3puentes'
+                                            ? 'bg-emerald-700 text-white border-emerald-700 shadow-md ring-2 ring-emerald-300'
+                                            : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'
+                                    }`}
+                                >
+                                    <div className="flex items-center justify-between">
+                                        <span className="font-black text-xs uppercase flex items-center gap-1.5">
+                                            <Icon name="store" size={14}/>
+                                            <span>2. Local 3 Puentes</span>
+                                        </span>
+                                        {formC.destinoCarga === '3puentes' && <Icon name="check" size={14}/>}
+                                    </div>
+                                    <p className={`text-[10px] mt-1 ${ formC.destinoCarga === '3puentes' ? 'text-emerald-100' : 'text-slate-500' }`}>
+                                        Venta final sin utilidad al precio exacto de compra. Dado de baja; no requiere seguimiento.
+                                    </p>
+                                </button>
                             </div>
 
-                            <div>
-                                <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Fecha de Salida</label>
-                                <input
-                                    type="date"
-                                    className="w-full p-2.5 bg-slate-50 rounded-xl font-bold text-xs border outline-none"
-                                    value={formC.fecha}
-                                    onChange={e => setFormC({...formC, fecha: e.target.value})}
-                                />
-                            </div>
+                            {formC.destinoCarga === '3puentes' ? (
+                                <div className="p-2.5 bg-emerald-100/90 border border-emerald-300 rounded-xl text-[10px] text-emerald-900 font-bold flex items-start gap-2">
+                                    <span className="text-base leading-none">ℹ️</span>
+                                    <span>
+                                        <strong>Regla de negocio oficial:</strong> El pedido para <strong>Local 3 Puentes</strong> se envía <strong>sin utilidad al precio exacto de compra</strong>. Se registra como venta final directa y se da de baja del cliente; ya no requiere liquidación nocturna ni seguimiento.
+                                    </span>
+                                </div>
+                            ) : (
+                                <div className="p-2 bg-blue-50 border border-blue-200 rounded-xl text-[10px] text-blue-900 font-medium">
+                                    ℹ️ <strong>Destino Andrés Cárdenas:</strong> Se cargará al furgón de reparto para comercializarse con precio oficial de venta final y margen comercial.
+                                </div>
+                            )}
                         </div>
 
-                        {/* Detalle de Carga AM de los 4 productos */}
+                        {/* Si es Andrés Cárdenas: Muestra selección de Ruta y Vendedor */}
+                        {formC.destinoCarga !== '3puentes' && (
+                            <>
+                                <div>
+                                    <label className="text-[9px] font-black text-slate-700 uppercase block mb-1.5 flex items-center justify-between">
+                                        <span>Seleccionar Ruta Oficial (5 Rutas) *</span>
+                                        <span className="text-[8px] text-emerald-700 font-bold">Obligatorio</span>
+                                    </label>
+                                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                                        {RUTAS_OFICIALES.map(r => (
+                                            <button
+                                                type="button"
+                                                key={r.id}
+                                                onClick={() => setFormC({...formC, ruta: r.id})}
+                                                className={`p-2.5 rounded-xl border text-left transition-all ${formC.ruta === r.id ? 'border-[#128C7E] bg-emerald-50/80 shadow-sm ring-1 ring-[#128C7E]' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}
+                                            >
+                                                <p className="font-black text-slate-800 text-xs uppercase flex items-center justify-between">
+                                                    <span>{r.nombre}</span>
+                                                    {formC.ruta === r.id && <Icon name="check" size={12} className="text-[#128C7E]"/>}
+                                                </p>
+                                                <p className="text-[9px] text-slate-400 truncate mt-0.5">{r.zona}</p>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Vendedor / Responsable</label>
+                                        <select
+                                            className="w-full p-2.5 bg-slate-50 rounded-xl font-black text-xs border border-slate-200 outline-none text-[#128C7E]"
+                                            value={formC.ven}
+                                            onChange={e => setFormC({...formC, ven: e.target.value})}
+                                        >
+                                            {VENDEDORES.map((v, i) => <option key={i} value={v}>{v}</option>)}
+                                        </select>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Fecha de Salida</label>
+                                        <input
+                                            type="date"
+                                            className="w-full p-2.5 bg-slate-50 rounded-xl font-bold text-xs border outline-none"
+                                            value={formC.fecha}
+                                            onChange={e => setFormC({...formC, fecha: e.target.value})}
+                                        />
+                                    </div>
+                                </div>
+                            </>
+                        )}
+
+                        {/* Si es Local 3 Puentes: Destinatario directo, Número de Factura y Fecha */}
+                        {formC.destinoCarga === '3puentes' && (
+                            <div className="space-y-3">
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                    <div>
+                                        <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Destinatario / Cliente</label>
+                                        <div className="w-full p-2.5 bg-emerald-50 rounded-xl font-black text-xs border border-emerald-200 text-emerald-900 flex items-center gap-1.5 truncate">
+                                            <Icon name="store" size={14}/>
+                                            <span>Local 3 Puentes</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <div className="flex items-center justify-between mb-1">
+                                            <label className="text-[9px] font-black text-slate-500 uppercase">
+                                                N° Factura Venta Polaca *
+                                            </label>
+                                            {docsCompra && docsCompra.length > 0 && (
+                                                <span className="text-[8px] font-bold text-emerald-800 bg-emerald-100 px-1.5 py-0.5 rounded">
+                                                    {docsCompra.length} {docsCompra.length === 1 ? 'Registrada' : 'Registradas'}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="relative">
+                                            <input
+                                                type="text"
+                                                placeholder="003-102-000010184"
+                                                className="w-full p-2.5 bg-white font-mono font-black text-xs border border-emerald-300 rounded-xl text-emerald-950 focus:ring-2 focus:ring-emerald-400 outline-none uppercase"
+                                                value={formC.numeroFactura || ''}
+                                                onChange={e => setFormC({...formC, numeroFactura: e.target.value})}
+                                                list="lista-facturas-polaca-3p"
+                                            />
+                                            {docsCompra && docsCompra.length > 0 && (
+                                                <datalist id="lista-facturas-polaca-3p">
+                                                    {docsCompra.map(dc => (
+                                                        <option key={dc.id} value={dc.numFact}>
+                                                            {dc.numFact} • {dc.fecha} (${Number(dc.monto || 0).toFixed(2)})
+                                                        </option>
+                                                    ))}
+                                                </datalist>
+                                            )}
+                                        </div>
+                                        <p className="text-[8px] text-slate-400 mt-1">
+                                            Factura de venta emitida por Polaca correspondiente a este despacho al costo+IVA.
+                                        </p>
+                                    </div>
+                                    <div>
+                                        <label className="text-[9px] font-black text-slate-500 uppercase block mb-1">Fecha de Factura</label>
+                                        <input
+                                            type="date"
+                                            className="w-full p-2.5 bg-white font-bold text-xs border border-emerald-300 rounded-xl text-slate-800 outline-none"
+                                            value={formC.fecha}
+                                            onChange={e => setFormC({...formC, fecha: e.target.value})}
+                                        />
+                                    </div>
+                                </div>
+                                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-[10px] text-emerald-900 font-bold flex items-center justify-between gap-2">
+                                    <span>💡 Tarifa Oficial: <strong>Costo de fábrica + 15% IVA</strong> ($0.00 de utilidad). Se generará y descargará el PDF oficial de la factura al guardar.</span>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Detalle de Productos a Cargar desde Bodega */}
                         <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
                             <div className="flex justify-between items-center mb-2">
                                 <p className="text-[10px] font-black text-slate-700 uppercase">
-                                    Carga de Productos al Camión (Los 4 Ítems):
+                                    {formC.destinoCarga === '3puentes'
+                                        ? 'Cantidades a Despachar a Local 3 Puentes (Al Costo + 15% IVA):'
+                                        : 'Carga de Productos al Camión (Los 4 Ítems):'}
                                 </p>
-                                <span className="text-[9px] font-black text-[#128C7E] bg-emerald-100 px-2 py-0.5 rounded">
+                                <span className={`text-[9px] font-black px-2 py-0.5 rounded ${
+                                    formC.destinoCarga === '3puentes' ? 'text-emerald-900 bg-emerald-200' : 'text-[#128C7E] bg-emerald-100'
+                                }`}>
                                     {formC.items.reduce((a,it)=>a+(parseInt(it.q)||0),0)} Unidades Totales
                                 </span>
                             </div>
 
                             <div className="space-y-2">
-                                {formC.items.map((it, idx) => (
-                                    <div key={it.id} className="bg-white p-2.5 rounded-xl border border-slate-200 flex justify-between items-center gap-2">
-                                        <div className="flex-1">
-                                            <span className="text-[8px] font-black bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded mr-1">
-                                                {it.codigo}
-                                            </span>
-                                            <span className="font-black text-slate-800 text-[11px] uppercase">
-                                                {it.nombre?.replace('EMPACADO AVENA POLACA ', '')}
-                                            </span>
-                                            <span className="text-[9px] text-slate-400 block font-medium">PVD: ${it.pvd.toFixed(4)}</span>
-                                        </div>
+                                {formC.items.map((it, idx) => {
+                                    const stockActual = stockPorProducto.find(s => s.id === it.id)?.stock || 0;
+                                    const es3P = formC.destinoCarga === '3puentes';
+                                    const precioAplicado = es3P ? (Number(it.costoConIva) || (Number(it.costo) * 1.15)) : it.pvd;
+                                    const ivaUnit = Number(it.costo || 0) * 0.15;
 
-                                        <div className="w-28 flex items-center gap-1">
-                                            <input
-                                                type="number"
-                                                min="0"
-                                                placeholder="0"
-                                                className="w-full p-2 text-center font-black bg-slate-50 rounded-xl border border-slate-200 outline-none text-[#128C7E] text-xs focus:border-[#128C7E]"
-                                                value={it.q || ''}
-                                                onChange={e => {
-                                                    const ni = [...formC.items];
-                                                    ni[idx].q = parseInt(e.target.value) || 0;
-                                                    setFormC({...formC, items: ni});
-                                                }}
-                                            />
-                                            <span className="text-[10px] font-bold text-slate-400">u.</span>
+                                    return (
+                                        <div key={it.id} className="bg-white p-2.5 rounded-xl border border-slate-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span className="text-[8px] font-black bg-slate-100 text-slate-500 px-1.5 py-0.5 rounded">
+                                                        {it.codigo}
+                                                    </span>
+                                                    <span className="font-black text-slate-800 text-[11px] uppercase">
+                                                        {it.nombre?.replace('EMPACADO AVENA POLACA ', '')}
+                                                    </span>
+                                                </div>
+                                                <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5 text-[9px]">
+                                                    <span className="text-slate-400">Stock Bodega: <strong className={stockActual > 0 ? 'text-slate-700' : 'text-red-500'}>{stockActual} u.</strong></span>
+                                                    <span className="text-slate-300">•</span>
+                                                    {es3P ? (
+                                                        <span className="text-emerald-800 font-bold">
+                                                            Costo: ${it.costo.toFixed(4)} + 15% IVA (${ivaUnit.toFixed(4)}) = <strong className="text-emerald-950 bg-emerald-100 px-1 rounded">Factura: ${precioAplicado.toFixed(4)}</strong>
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-[#128C7E] font-bold">PVD Venta Final: ${it.pvd.toFixed(2)}</span>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="w-full sm:w-auto flex items-center justify-between sm:justify-end gap-3">
+                                                <div className="w-24">
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        placeholder="0"
+                                                        className="w-full p-2 text-center font-black bg-slate-50 rounded-xl border border-slate-200 outline-none text-[#128C7E] text-xs focus:border-[#128C7E]"
+                                                        value={it.q || ''}
+                                                        onChange={e => {
+                                                            const ni = [...formC.items];
+                                                            ni[idx].q = parseInt(e.target.value) || 0;
+                                                            setFormC({...formC, items: ni});
+                                                        }}
+                                                    />
+                                                </div>
+                                                <div className="w-24 text-right">
+                                                    <span className="text-[8px] text-slate-400 block font-bold">Subtotal Factura</span>
+                                                    <span className={`font-black text-xs ${es3P ? 'text-emerald-900' : 'text-[#075E54]'}`}>
+                                                        ${((parseInt(it.q) || 0) * precioAplicado).toFixed(2)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            {formC.destinoCarga === '3puentes' ? (
+                                <div className="mt-3 pt-2 border-t border-slate-200 text-xs space-y-1">
+                                    <div className="flex justify-between items-center text-slate-500">
+                                        <span>Subtotal Base (Sin IVA):</span>
+                                        <span className="font-bold text-slate-700">
+                                            ${formC.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * Number(b.costo || 0)), 0).toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center text-slate-500">
+                                        <span>I.V.A. (15%):</span>
+                                        <span className="font-bold text-emerald-700">
+                                            ${(formC.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * Number(b.costo || 0)), 0) * 0.15).toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center pt-1 border-t border-slate-200">
+                                        <span className="font-black text-slate-800">TOTAL FACTURA A PAGAR (COSTO + 15% IVA):</span>
+                                        <div className="text-right">
+                                            <span className="font-black text-base text-emerald-950">
+                                                ${formC.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * Number(b.costoConIva || (b.costo * 1.15))), 0).toFixed(2)}
+                                            </span>
+                                            <span className="text-[9px] text-emerald-700 block font-bold">Utilidad Bruta: $0.00 (Sin Ganancia Comercial)</span>
                                         </div>
                                     </div>
-                                ))}
-                            </div>
-
-                            <div className="mt-3 pt-2 border-t border-slate-200 flex justify-between items-center text-xs">
-                                <span className="text-slate-500 font-bold">Valor Total a Cobrar (PVD):</span>
-                                <span className="font-black text-sm text-[#075E54]">
-                                    ${formC.items.reduce((a,b)=>a+((parseInt(b.q)||0)*b.pvd), 0).toFixed(2)}
-                                </span>
-                            </div>
+                                </div>
+                            ) : (
+                                <div className="mt-3 pt-2 border-t border-slate-200 flex justify-between items-center text-xs">
+                                    <span className="text-slate-500 font-bold">Valor Total a Cobrar (PVD):</span>
+                                    <span className="font-black text-sm text-[#075E54]">
+                                        ${formC.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * b.pvd), 0).toFixed(2)}
+                                    </span>
+                                </div>
+                            )}
                         </div>
                     </div>
 
-                    <div className="p-4 border-t bg-slate-50 flex gap-2">
+                    <div className="p-4 border-t bg-slate-50 flex flex-wrap gap-2">
                         <button
                             onClick={() => setModalC(false)}
-                            className="w-1/3 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-black text-xs uppercase text-slate-700"
+                            className="px-4 py-3 rounded-xl bg-slate-200 hover:bg-slate-300 font-black text-xs uppercase text-slate-700"
                         >
                             Cancelar
                         </button>
+
+                        {formC.destinoCarga === '3puentes' && (
+                            <button
+                                type="button"
+                                onClick={() => descargarPDFFactura3Puentes(formC)}
+                                className="px-3 py-3 rounded-xl bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-black text-xs uppercase flex items-center gap-1.5 transition-all shadow-sm"
+                                title="Descargar borrador/previa de la factura en PDF"
+                            >
+                                <Icon name="file-text" size={15}/>
+                                <span>Descargar PDF</span>
+                            </button>
+                        )}
+
                         <button
                             onClick={guardarCarga}
                             disabled={isSaving}
-                            className={`flex-1 py-3 rounded-xl ${isSaving ? 'bg-slate-400' : 'bg-[#128C7E] hover:bg-[#075E54]'} text-white font-black text-xs uppercase shadow-md transition-all`}
+                            className={`flex-1 py-3 rounded-xl font-black text-xs uppercase shadow-md transition-all ${
+                                isSaving
+                                    ? 'bg-slate-400 text-white'
+                                    : (formC.destinoCarga === '3puentes'
+                                        ? 'bg-emerald-700 hover:bg-emerald-800 text-white'
+                                        : 'bg-[#128C7E] hover:bg-[#075E54] text-white')
+                            }`}
                         >
-                            {isSaving ? 'Despachando...' : 'Confirmar Carga AM (Sale a Ruta) 🚛'}
+                            {isSaving
+                                ? 'Despachando...'
+                                : (formC.destinoCarga === '3puentes'
+                                    ? 'Confirmar Factura y Despachar a 3 Puentes (Al Costo + IVA) 🏪'
+                                    : 'Confirmar Carga AM a Andrés Cárdenas (Sale a Ruta) 🚛')}
                         </button>
                     </div>
                 </div>
             </div>
             )}
+
+            {/* ═══════════════════════════════════════════════════════
+                MODAL: FACTURA / RECIBO DE ENTREGA A LOCAL 3 PUENTES (VISTA PREVIA E IMPRESIÓN)
+            ═══════════════════════════════════════════════════════ */}
+            {modalFactura3P && (() => {
+                const itemsFactura = (modalFactura3P.items || []).filter(it => (parseInt(it.q) || 0) > 0);
+                const subtotalBase = itemsFactura.reduce((a, b) => a + ((parseInt(b.q) || 0) * Number(b.costo || 0)), 0);
+                const ivaTotal = subtotalBase * 0.15;
+                const totalFactura = itemsFactura.reduce((a, b) => a + ((parseInt(b.q) || 0) * Number(b.costoConIva || (Number(b.costo || 0) * 1.15))), 0);
+
+                return (
+            <div className="fixed inset-0 bg-slate-900/80 z-[250] overflow-y-auto backdrop-blur-sm p-2 sm:p-4 flex items-center justify-center">
+                <div className="bg-white w-full max-w-2xl rounded-3xl flex flex-col shadow-2xl overflow-hidden fade-in text-xs">
+                    {/* Barra de control superior (no-print) */}
+                    <div className="p-4 border-b flex flex-wrap justify-between items-center bg-gradient-to-r from-emerald-800 via-teal-800 to-emerald-900 text-white gap-2 no-print">
+                        <div className="flex items-center gap-2">
+                            <span className="text-xl">📄</span>
+                            <div>
+                                <h3 className="font-black uppercase text-xs tracking-wider">Factura / Recibo Oficial — Local 3 Puentes</h3>
+                                <p className="text-[10px] text-emerald-200">Al costo + 15% IVA ($0.00 utilidad) • Dado de baja de inventario</p>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                            <button
+                                onClick={() => descargarPDFFactura3Puentes(modalFactura3P)}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-white text-emerald-900 hover:bg-emerald-50 rounded-xl font-black text-xs shadow transition-all"
+                            >
+                                <Icon name="download" size={14}/>
+                                <span>Descargar PDF</span>
+                            </button>
+                            <button
+                                onClick={() => window.print()}
+                                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-950 hover:bg-black text-white rounded-xl font-black text-xs shadow transition-all"
+                            >
+                                <Icon name="printer" size={14}/>
+                                <span>Imprimir</span>
+                            </button>
+                            <button
+                                onClick={() => setModalFactura3P(null)}
+                                className="p-1.5 text-emerald-200 hover:text-white rounded-lg transition-colors"
+                            >
+                                <Icon name="x" size={18}/>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* VISTA DEL COMPROBANTE FACTURA */}
+                    <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto custom-scrollbar bg-slate-50/50">
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm space-y-4 printable-factura-area">
+                            {/* Cabecera Proveedor y Factura */}
+                            <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-slate-200">
+                                <div>
+                                    <h2 className="text-xl font-black text-[#075E54] tracking-tight">AUSTROPOLACA CONTROL</h2>
+                                    <p className="text-[10px] font-bold text-[#128C7E] uppercase">Bodega Central & Distribución de Avena Polaca</p>
+                                    <p className="text-[10px] text-slate-500 mt-1"><strong>Razón Social:</strong> {PROVEEDOR_UNICO.razonSocial}</p>
+                                    <p className="text-[10px] text-slate-500"><strong>R.U.C.:</strong> {PROVEEDOR_UNICO.ruc} • Contribuyente Especial: {PROVEEDOR_UNICO.contribuyenteEspecial}</p>
+                                    <p className="text-[10px] text-slate-500"><strong>Matriz:</strong> {PROVEEDOR_UNICO.direccion}</p>
+                                    <p className="text-[10px] text-slate-500"><strong>Teléfonos:</strong> {PROVEEDOR_UNICO.telefonos}</p>
+                                </div>
+
+                                <div className="bg-slate-50 p-3.5 rounded-2xl border border-emerald-300 text-center w-full sm:w-56 shrink-0">
+                                    <p className="text-[9px] font-black text-slate-500 uppercase">R.U.C. {PROVEEDOR_UNICO.ruc}</p>
+                                    <div className="bg-[#075E54] text-white py-1 px-2 rounded-lg my-1">
+                                        <p className="font-black text-[11px] uppercase tracking-wide">Factura Venta Polaca</p>
+                                    </div>
+                                    <p className="text-base font-black text-red-600 tracking-wider font-mono">
+                                        No. {obtenerNumeroFacturaPolaca(modalFactura3P)}
+                                    </p>
+                                    <p className="text-[10px] font-bold text-slate-600 mt-1">
+                                        FECHA: <span className="text-slate-900 font-black">{modalFactura3P.fecha || today}</span>
+                                    </p>
+                                </div>
+                            </div>
+
+                            {/* Datos del Cliente y Factura Origen */}
+                            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                                <div>
+                                    <p className="text-[9px] font-black text-slate-400 uppercase">Destinatario / Cliente:</p>
+                                    <p className="font-black text-slate-800 text-xs">LOCAL 3 PUENTES</p>
+                                    <p className="text-slate-500 text-[10px]">Local Comercial Tres Puentes - Cuenca, Ecuador</p>
+                                </div>
+                                <div>
+                                    <p className="text-[9px] font-black text-slate-400 uppercase">Factura de Venta Polaca de Origen:</p>
+                                    <p className="font-black text-emerald-800 font-mono text-xs">{obtenerNumeroFacturaPolaca(modalFactura3P)}</p>
+                                    <p className="text-slate-500 text-[10px]">Venta al costo + 15% IVA ($0 utilidad) • Salida de bodega</p>
+                                </div>
+                            </div>
+
+                            {/* Tabla de Productos Facturados */}
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-[11px] border-collapse">
+                                    <thead>
+                                        <tr className="bg-[#075E54] text-white font-bold text-[9px] uppercase">
+                                            <th className="p-2 rounded-l-lg text-center">#</th>
+                                            <th className="p-2">Código</th>
+                                            <th className="p-2">Descripción</th>
+                                            <th className="p-2 text-center">Cant.</th>
+                                            <th className="p-2 text-right">P. Base</th>
+                                            <th className="p-2 text-right">IVA 15%</th>
+                                            <th className="p-2 text-right">P. Costo+IVA</th>
+                                            <th className="p-2 rounded-r-lg text-right">Total</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {itemsFactura.map((it, idx) => {
+                                            const cant = parseInt(it.q) || 0;
+                                            const cBase = Number(it.costo || 0);
+                                            const cIva = Number(it.costoConIva || (cBase * 1.15));
+                                            const ivaUnit = cBase * 0.15;
+                                            const totalFila = cant * cIva;
+                                            return (
+                                                <tr key={idx} className="hover:bg-slate-50">
+                                                    <td className="p-2 text-center text-slate-400 font-bold">{idx + 1}</td>
+                                                    <td className="p-2 font-mono text-[9px] text-slate-500">{it.codigo}</td>
+                                                    <td className="p-2 font-bold text-slate-800">
+                                                        {(it.nombre || '').replace('EMPACADO AVENA POLACA ', 'AVENA POLACA ')}
+                                                    </td>
+                                                    <td className="p-2 text-center font-black text-slate-900">{cant} u.</td>
+                                                    <td className="p-2 text-right text-slate-500">${cBase.toFixed(4)}</td>
+                                                    <td className="p-2 text-right text-slate-500">${ivaUnit.toFixed(4)}</td>
+                                                    <td className="p-2 text-right font-black text-emerald-800">${cIva.toFixed(4)}</td>
+                                                    <td className="p-2 text-right font-black text-slate-900">${totalFila.toFixed(2)}</td>
+                                                </tr>
+                                            );
+                                        })}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Resumen de Totales */}
+                            <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pt-3 border-t border-slate-200">
+                                <div className="bg-emerald-50/70 p-3 rounded-xl border border-emerald-200 text-[10px] space-y-1 flex-1">
+                                    <p className="font-black text-emerald-900 uppercase">Certificación de Despacho al Costo:</p>
+                                    <p className="text-emerald-800">• Despacho directo desde Bodega Central a Local 3 Puentes.</p>
+                                    <p className="text-emerald-800">• Precios calculados al costo exacto de compra más el 15% de IVA.</p>
+                                    <p className="text-emerald-800">• Venta final descargada del inventario físico; no requiere seguimiento.</p>
+                                </div>
+
+                                <div className="w-full sm:w-64 bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-1.5 text-xs">
+                                    <div className="flex justify-between text-slate-600">
+                                        <span>Subtotal (Base Imponible):</span>
+                                        <span className="font-bold">
+                                            ${subtotalBase.toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between text-slate-600">
+                                        <span>I.V.A. (15%):</span>
+                                        <span className="font-bold text-emerald-700">
+                                            ${ivaTotal.toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div className="flex justify-between items-center pt-1.5 border-t border-slate-200">
+                                        <span className="font-black text-slate-800">TOTAL FACTURA:</span>
+                                        <span className="font-black text-base text-[#075E54]">
+                                            ${totalFactura.toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div className="text-right">
+                                        <span className="text-[9px] font-bold text-emerald-700">Utilidad Bruta: $0.00 (Sin Utilidad)</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Firmas de Responsabilidad */}
+                            <div className="grid grid-cols-2 gap-8 pt-8 pb-2 text-center text-[10px]">
+                                <div>
+                                    <div className="border-t border-slate-400 w-3/4 mx-auto mb-1"></div>
+                                    <p className="font-black text-slate-700 uppercase">Entregado por (Bodega Central)</p>
+                                    <p className="text-slate-400 text-[9px]">AustroPolaca Control</p>
+                                </div>
+                                <div>
+                                    <div className="border-t border-slate-400 w-3/4 mx-auto mb-1"></div>
+                                    <p className="font-black text-slate-700 uppercase">Recibido Conforme (Cliente)</p>
+                                    <p className="text-slate-400 text-[9px]">Local Comercial 3 Puentes</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Footer del Modal (no-print) */}
+                    <div className="p-4 border-t bg-slate-50 flex justify-between items-center no-print">
+                        <span className="text-[10px] text-slate-400">AustroPolaca Control • Sistema de Facturación y Recibos</span>
+                        <div className="flex gap-2">
+                            <button
+                                onClick={() => setModalFactura3P(null)}
+                                className="px-4 py-2 bg-slate-200 hover:bg-slate-300 font-bold text-xs uppercase text-slate-700 rounded-xl"
+                            >
+                                Cerrar
+                            </button>
+                            <button
+                                onClick={() => descargarPDFFactura3Puentes(modalFactura3P)}
+                                className="px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white font-black text-xs uppercase rounded-xl flex items-center gap-1.5 shadow"
+                            >
+                                <Icon name="download" size={14}/>
+                                <span>Descargar PDF Factura</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+                );
+            })()}
 
             {/* ═══════════════════════════════════════════════════════
                 MODAL: CIERRE DIARIO DE LA NOCHE (DEVOLUCIÓN POSVENTA Y LIQUIDACIÓN)
