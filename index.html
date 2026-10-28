@@ -257,6 +257,16 @@
         utilidad17: parseFloat((p.pvd - p.costo).toFixed(6)),
     }));
 
+    // ── PRECIOS DE VENTA OFICIALES PARA NOTA DE VENTA ÁGIL ──
+    // Precios oficiales de venta: 0.42 de 160g/165g, 0.50 de 165g reducida, 0.84 de 340g, 1.05 de medio litro (500g) y 1.83 de 1000g (1 litro)
+    const PRODUCTOS_VENTA_BASE = [
+        { id:'p1', codigo:'P000000256',    nombre:'01 EMPACADO AVENA POLACA 165G', nombreCorto:'Avena Polaca 165g (160g)', peso:'165g', pvd:0.42, costoRef:0.269565, emoji:'🥛', colorBadge:'bg-emerald-100 text-emerald-800 border-emerald-300', gradiente:'from-emerald-600 to-teal-700' },
+        { id:'p5', codigo:'P000000256-BA', nombre:'02 EMPACADO AVENA POLACA 165G REDUCIDA EN AZÚCAR', nombreCorto:'165g Reducida en Azúcar', peso:'165g', pvd:0.50, costoRef:0.345043, emoji:'🌱', colorBadge:'bg-teal-100 text-teal-800 border-teal-300', gradiente:'from-teal-600 to-cyan-700' },
+        { id:'p2', codigo:'P000000247',    nombre:'03 EMPACADO AVENA POLACA 340G', nombreCorto:'Avena Polaca 340g', peso:'340g', pvd:0.84, costoRef:0.608694, emoji:'🥤', colorBadge:'bg-blue-100 text-blue-800 border-blue-300', gradiente:'from-blue-600 to-indigo-700' },
+        { id:'p3', codigo:'P000000005',    nombre:'04 EMPACADO AVENA POLACA 500G', nombreCorto:'Avena Polaca 500g (Medio Litro)', peso:'500g', pvd:1.05, costoRef:0.777042, emoji:'🍶', colorBadge:'bg-purple-100 text-purple-800 border-purple-300', gradiente:'from-indigo-600 to-purple-700' },
+        { id:'p4', codigo:'P000000006',    nombre:'05 EMPACADO AVENA POLACA 1000G', nombreCorto:'Avena Polaca 1000g (1 Litro)', peso:'1000g', pvd:1.83, costoRef:1.597390, emoji:'🧃', colorBadge:'bg-amber-100 text-amber-800 border-amber-300', gradiente:'from-amber-600 to-orange-700' },
+    ];
+
     const VENDEDORES = ["Andrés Cárdenas", "Diego Xavier Siavichay", "Vendedor Asignado"];
 
     // ── DOS DESTINOS OFICIALES DE FACTURA ──
@@ -364,12 +374,47 @@
     });
 
     function App() {
+        const today = new Date().toISOString().split('T')[0];
         const [user, setUser] = useState(null);
-        const [activeTab, setActiveTab] = useState('inicio'); // Iniciar en Bodega o Ganancias
+        const [activeTab, setActiveTab] = useState('notaVenta'); // Primero al entrar: NOTA DE VENTA ÁGIL
         const [loading, setLoading] = useState(true);
         const [error, setError] = useState(null);
         const [successMsg, setSuccessMsg] = useState(null);
         const [isSaving, setIsSaving] = useState(false);
+
+        // ── VENTAS / NOTAS DE VENTA ÁGILES & CIERRE DIARIO ──
+        const [ventasNotas, setVentasNotas] = useState(() => {
+            try {
+                const s = localStorage.getItem('austropolaca_ventas_notas_v1');
+                if (s) return JSON.parse(s);
+            } catch(e) {}
+            return [];
+        });
+
+        const [subTabVenta, setSubTabVenta] = useState('nueva'); // 'nueva' | 'cierre' | 'todas'
+        const [filtroFechaVentas, setFiltroFechaVentas] = useState(today);
+        const [busquedaVentas, setBusquedaVentas] = useState('');
+        const [modalVentaGuardada, setModalVentaGuardada] = useState(null);
+        const [modalTicketDetalle, setModalTicketDetalle] = useState(null);
+
+        const [formNota, setFormNota] = useState({
+            fecha: today,
+            numeroNota: '',
+            cliente: '',
+            detalle: '',
+            direccion: '',
+            telefono: '',
+            items: PRODUCTOS_VENTA_BASE.map(p => ({
+                id: p.id,
+                codigo: p.codigo,
+                nombre: p.nombre,
+                nombreCorto: p.nombreCorto,
+                peso: p.peso,
+                pvdDefault: p.pvd,
+                pvd: p.pvd, // Editable manualmente de ser necesario
+                q: 0
+            }))
+        });
 
         // Colecciones
         const [cargas, setCargas]               = useState([]); // despachos y rutas
@@ -462,7 +507,6 @@
         const [isAppInstalled, setIsAppInstalled]       = useState(false);
         const [showInstallModal, setShowInstallModal]   = useState(false);
         const [sidebarAbierto, setSidebarAbierto]       = useState(false);
-        const today = new Date().toISOString().split('T')[0];
 
         // Estados para Reporte Excel (Diario, Semanal, Mensual, Rango)
         const [filtroReporteRango, setFiltroReporteRango] = useState('hoy');
@@ -603,6 +647,600 @@
         const mostrarAviso = (msg) => {
             setSuccessMsg(msg);
             setTimeout(() => setSuccessMsg(null), 3500);
+        };
+
+        // ── PERSISTENCIA Y FUNCIONES DE NOTAS DE VENTA ÁGILES ──
+        useEffect(() => {
+            try {
+                localStorage.setItem('austropolaca_ventas_notas_v1', JSON.stringify(ventasNotas));
+            } catch(e) {}
+        }, [ventasNotas]);
+
+        // Clientes sugeridos para autocompletado rápido
+        const clientesVentasSugeridos = useMemo(() => {
+            const map = {};
+            ventasNotas.forEach(v => {
+                const nom = (v.cliente || '').trim();
+                if (nom && !map[nom.toLowerCase()]) {
+                    map[nom.toLowerCase()] = {
+                        nombre: nom,
+                        telefono: v.telefono || '',
+                        direccion: v.direccion || ''
+                    };
+                }
+            });
+            return Object.values(map);
+        }, [ventasNotas]);
+
+        // Modificar cantidad con stepper o chips (+1, +5, +10, +50...)
+        const cambiarCantidadItemNota = (id, delta) => {
+            setFormNota(prev => ({
+                ...prev,
+                items: prev.items.map(it => {
+                    if (it.id === id) {
+                        const nuevaQ = Math.max(0, (parseInt(it.q) || 0) + delta);
+                        return { ...it, q: nuevaQ };
+                    }
+                    return it;
+                })
+            }));
+        };
+
+        const fijarCantidadItemNota = (id, val) => {
+            const q = Math.max(0, parseInt(val) || 0);
+            setFormNota(prev => ({
+                ...prev,
+                items: prev.items.map(it => it.id === id ? { ...it, q } : it)
+            }));
+        };
+
+        // Modificar precio de venta manualmente de ser necesario
+        const cambiarPrecioItemNota = (id, val) => {
+            const num = parseFloat(String(val).replace(',', '.')) || 0;
+            const pvd = Math.max(0, num);
+            setFormNota(prev => ({
+                ...prev,
+                items: prev.items.map(it => it.id === id ? { ...it, pvd } : it)
+            }));
+        };
+
+        const restaurarPrecioItemNota = (id) => {
+            setFormNota(prev => ({
+                ...prev,
+                items: prev.items.map(it => it.id === id ? { ...it, pvd: it.pvdDefault } : it)
+            }));
+        };
+
+        const limpiarFormNota = () => {
+            setFormNota({
+                fecha: today,
+                numeroNota: `NV-${String((ventasNotas.length || 0) + 1).padStart(4, '0')}`,
+                cliente: '',
+                detalle: '',
+                direccion: '',
+                telefono: '',
+                items: PRODUCTOS_VENTA_BASE.map(p => ({
+                    id: p.id,
+                    codigo: p.codigo,
+                    nombre: p.nombre,
+                    nombreCorto: p.nombreCorto,
+                    peso: p.peso,
+                    pvdDefault: p.pvd,
+                    pvd: p.pvd,
+                    q: 0
+                }))
+            });
+        };
+
+        const seleccionarClienteSugerido = (c) => {
+            setFormNota(prev => ({
+                ...prev,
+                cliente: c.nombre,
+                telefono: c.telefono || prev.telefono,
+                direccion: c.direccion || prev.direccion
+            }));
+        };
+
+        // Cálculos en vivo para la nota activa
+        const totalesNotaActiva = useMemo(() => {
+            const items = formNota.items || [];
+            let unids = 0;
+            let total = 0;
+            items.forEach(it => {
+                const q = parseInt(it.q) || 0;
+                const p = parseFloat(it.pvd) || 0;
+                unids += q;
+                total += (q * p);
+            });
+            return {
+                totalUnidades: unids,
+                totalMonto: parseFloat(total.toFixed(2))
+            };
+        }, [formNota.items]);
+
+        // Guardar Nota de Venta
+        const guardarVentaNota = async () => {
+            const itemsValidos = (formNota.items || []).filter(it => (parseInt(it.q) || 0) > 0);
+            if (itemsValidos.length === 0) {
+                setError("Selecciona al menos 1 producto con cantidad mayor a 0 para generar la nota de venta.");
+                return;
+            }
+
+            const clienteFinal = (formNota.cliente || '').trim() || 'Consumidor Final';
+            const numNota = formNota.numeroNota || `NV-${String((ventasNotas.length || 0) + 1).padStart(4, '0')}`;
+            const horaActual = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const totalUnidades = itemsValidos.reduce((a, b) => a + (parseInt(b.q) || 0), 0);
+            const totalMonto = itemsValidos.reduce((a, b) => a + ((parseInt(b.q) || 0) * (parseFloat(b.pvd) || 0)), 0);
+
+            const nuevaVenta = {
+                id: 'vn_' + Date.now(),
+                numeroNota: numNota,
+                fecha: formNota.fecha || today,
+                hora: horaActual,
+                timestamp: Date.now(),
+                cliente: clienteFinal,
+                detalle: formNota.detalle || '',
+                direccion: formNota.direccion || '',
+                telefono: formNota.telefono || '',
+                totalUnidades,
+                totalMonto: parseFloat(totalMonto.toFixed(2)),
+                items: itemsValidos.map(it => {
+                    const q = parseInt(it.q) || 0;
+                    const pvd = parseFloat(it.pvd) || 0;
+                    return {
+                        id: it.id,
+                        codigo: it.codigo,
+                        nombre: it.nombre,
+                        nombreCorto: it.nombreCorto,
+                        peso: it.peso,
+                        pvd,
+                        pvdDefault: it.pvdDefault,
+                        q,
+                        subtotal: parseFloat((q * pvd).toFixed(2))
+                    };
+                })
+            };
+
+            setVentasNotas(prev => [nuevaVenta, ...prev]);
+            mostrarAviso(`✓ Venta guardada: ${clienteFinal} ($${nuevaVenta.totalMonto.toFixed(2)})`);
+
+            // Sincronizar en Firestore si está disponible
+            try {
+                if (window.appDb && window.appId && window.FB) {
+                    const col = n => FB.collection(window.appDb, 'artifacts', window.appId, 'public', 'data', n);
+                    await FB.addDoc(col('ventasNotas'), { ...nuevaVenta, createdAt: new Date().toISOString() });
+                }
+            } catch(e) {
+                console.warn("Offline Firestore sync fallback");
+            }
+
+            // Mostrar modal de confirmación con opciones de PDF y WhatsApp
+            setModalVentaGuardada(nuevaVenta);
+
+            // Preparar siguiente nota limpia
+            limpiarFormNota();
+        };
+
+        const eliminarVentaNota = async (id) => {
+            if (!confirm("¿Seguro que deseas anular y eliminar este registro de venta?")) return;
+            setVentasNotas(prev => prev.filter(v => v.id !== id));
+            try {
+                if (window.appDb && window.appId && window.FB) {
+                    await FB.deleteDoc(FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'ventasNotas', id));
+                }
+            } catch(e) {}
+            mostrarAviso("Registro de venta eliminado");
+        };
+
+        // Resumen y Cierre del Día (Totales por cada item y cada cliente)
+        const resumenCierreDia = useMemo(() => {
+            const fechaFiltro = filtroFechaVentas || today;
+            const ventasFiltradas = ventasNotas.filter(v => {
+                if (filtroFechaVentas === 'todas') return true;
+                return v.fecha === fechaFiltro;
+            });
+
+            const totalVentasMonto = ventasFiltradas.reduce((a, b) => a + (Number(b.totalMonto) || 0), 0);
+            const totalUnidades = ventasFiltradas.reduce((a, b) => a + (Number(b.totalUnidades) || 0), 0);
+            const totalClientes = ventasFiltradas.length;
+            const ticketPromedio = totalClientes > 0 ? (totalVentasMonto / totalClientes) : 0;
+
+            // Consolidado exacto por CADA ITEM
+            const porItem = PRODUCTOS_VENTA_BASE.map(prod => {
+                let unidadesVendidas = 0;
+                let montoVendido = 0;
+                ventasFiltradas.forEach(v => {
+                    const it = (v.items || []).find(item => item.id === prod.id);
+                    if (it) {
+                        const q = parseInt(it.q) || 0;
+                        const p = parseFloat(it.pvd) || 0;
+                        unidadesVendidas += q;
+                        montoVendido += (Number(it.subtotal) || (q * p));
+                    }
+                });
+                return {
+                    ...prod,
+                    unidadesVendidas,
+                    montoVendido: parseFloat(montoVendido.toFixed(2)),
+                    porcentajeTotal: totalVentasMonto > 0 ? ((montoVendido / totalVentasMonto) * 100).toFixed(1) : '0.0'
+                };
+            });
+
+            // Consolidado exacto por CADA CLIENTE
+            const clientesMap = {};
+            ventasFiltradas.forEach(v => {
+                const nom = (v.cliente || 'Consumidor Final').trim();
+                const key = nom.toLowerCase();
+                if (!clientesMap[key]) {
+                    clientesMap[key] = {
+                        nombre: nom,
+                        telefono: v.telefono || '',
+                        direccion: v.direccion || '',
+                        ventasCount: 0,
+                        totalMonto: 0,
+                        totalUnidades: 0,
+                        tickets: []
+                    };
+                }
+                clientesMap[key].ventasCount += 1;
+                clientesMap[key].totalMonto += (Number(v.totalMonto) || 0);
+                clientesMap[key].totalUnidades += (Number(v.totalUnidades) || 0);
+                clientesMap[key].tickets.push(v);
+            });
+
+            const porCliente = Object.values(clientesMap).sort((a, b) => b.totalMonto - a.totalMonto);
+
+            return {
+                fecha: fechaFiltro,
+                ventas: ventasFiltradas,
+                totalVentasMonto: parseFloat(totalVentasMonto.toFixed(2)),
+                totalUnidades,
+                totalClientes,
+                ticketPromedio: parseFloat(ticketPromedio.toFixed(2)),
+                porItem,
+                porCliente
+            };
+        }, [ventasNotas, filtroFechaVentas, today]);
+
+        // Descargar PDF oficial de Nota de Venta para compartir al cliente
+        const descargarPdfNotaVenta = (venta) => {
+            const { jsPDF } = window.jspdf || {};
+            if (typeof jsPDF !== 'function') {
+                mostrarAviso("Librería PDF cargando... intenta nuevamente.");
+                return;
+            }
+            try {
+                const doc = new jsPDF({
+                    orientation: 'portrait',
+                    unit: 'mm',
+                    format: 'a5'
+                });
+
+                const cVerdeOscuro = [7, 94, 84];     // #075E54
+                const cTeal = [18, 140, 126];         // #128C7E
+                const cGrisTexto = [51, 65, 85];
+                const cGrisBorde = [203, 213, 225];
+
+                // Barra superior decorativa institucional
+                doc.setFillColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                doc.rect(0, 0, 148, 6, 'F');
+
+                // Encabezado Proveedor / Empresa
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(14);
+                doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                doc.text("AUSTROPOLACA CONTROL", 10, 15);
+
+                doc.setFontSize(7.5);
+                doc.setFont('helvetica', 'bold');
+                doc.setTextColor(cTeal[0], cTeal[1], cTeal[2]);
+                doc.text("DISTRIBUCIÓN Y VENTA OFICIAL DE AVENA POLACA", 10, 19.5);
+
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(6.5);
+                doc.setTextColor(cGrisTexto[0], cGrisTexto[1], cGrisTexto[2]);
+                doc.text("RUC: " + PROVEEDOR_UNICO.ruc + " | Matriz: " + PROVEEDOR_UNICO.direccion.substring(0, 42), 10, 24);
+                doc.text("Teléfonos: " + PROVEEDOR_UNICO.telefonos, 10, 27.5);
+
+                // Recuadro derecho: NOTA DE VENTA
+                doc.setDrawColor(cTeal[0], cTeal[1], cTeal[2]);
+                doc.setLineWidth(0.6);
+                doc.setFillColor(248, 250, 252);
+                doc.roundedRect(88, 10, 50, 21, 2, 2, 'FD');
+
+                doc.setFillColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                doc.rect(88, 10, 50, 6, 'F');
+                doc.setTextColor(255, 255, 255);
+                doc.setFontSize(7.5);
+                doc.setFont('helvetica', 'bold');
+                doc.text("NOTA DE VENTA / RECIBO", 113, 14.5, { align: 'center' });
+
+                doc.setTextColor(220, 38, 38);
+                doc.setFontSize(9.5);
+                doc.text("No. " + (venta.numeroNota || 'NV-0001'), 113, 21, { align: 'center' });
+
+                doc.setTextColor(cGrisTexto[0], cGrisTexto[1], cGrisTexto[2]);
+                doc.setFontSize(6.5);
+                doc.setFont('helvetica', 'bold');
+                doc.text("FECHA: " + (venta.fecha || today) + (venta.hora ? " " + venta.hora : ""), 113, 27.5, { align: 'center' });
+
+                // Bloque Datos del Cliente
+                doc.setDrawColor(cGrisBorde[0], cGrisBorde[1], cGrisBorde[2]);
+                doc.setLineWidth(0.3);
+                doc.setFillColor(241, 245, 249);
+                doc.roundedRect(10, 33, 128, 21, 1.5, 1.5, 'FD');
+
+                doc.setFontSize(7);
+                doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                doc.setFont('helvetica', 'bold');
+                doc.text("CLIENTE:", 13, 38);
+                doc.text("TELÉFONO:", 13, 43);
+                doc.text("DIRECCIÓN:", 13, 48);
+
+                doc.setTextColor(15, 23, 42);
+                doc.setFont('helvetica', 'bold');
+                doc.text((venta.cliente || 'Consumidor Final').toUpperCase(), 36, 38);
+                doc.setFont('helvetica', 'normal');
+                doc.text(venta.telefono || 'Sin teléfono', 36, 43);
+                doc.text(venta.direccion || 'Entrega en ruta', 36, 48);
+
+                if (venta.detalle) {
+                    doc.setFont('helvetica', 'italic');
+                    doc.setFontSize(6.5);
+                    doc.setTextColor(100, 116, 139);
+                    doc.text("Observación: " + venta.detalle, 13, 52.5);
+                }
+
+                // Filas de la tabla de items
+                const itemsValidos = (venta.items || []).filter(it => (parseInt(it.q) || 0) > 0);
+                const tableRows = itemsValidos.map((it, idx) => {
+                    const cant = parseInt(it.q) || 0;
+                    const pUnit = parseFloat(it.pvd) || 0;
+                    const sub = Number(it.subtotal) || (cant * pUnit);
+                    const nomCorto = (it.nombreCorto || it.nombre || '').replace('01 EMPACADO ', '').replace('02 EMPACADO ', '').replace('03 EMPACADO ', '').replace('04 EMPACADO ', '').replace('05 EMPACADO ', '');
+                    return [
+                        String(idx + 1),
+                        nomCorto,
+                        cant + " u.",
+                        "$" + pUnit.toFixed(2),
+                        "$" + sub.toFixed(2)
+                    ];
+                });
+
+                doc.autoTable({
+                    startY: 56,
+                    head: [['#', 'Descripción del Producto', 'Cant.', 'P. Unit.', 'Total']],
+                    body: tableRows,
+                    theme: 'grid',
+                    headStyles: {
+                        fillColor: cVerdeOscuro,
+                        textColor: [255, 255, 255],
+                        fontStyle: 'bold',
+                        fontSize: 7.5,
+                        halign: 'center',
+                        cellPadding: 2
+                    },
+                    bodyStyles: {
+                        textColor: [15, 23, 42],
+                        fontSize: 7,
+                        cellPadding: 2
+                    },
+                    columnStyles: {
+                        0: { cellWidth: 8, halign: 'center' },
+                        1: { cellWidth: 'auto', halign: 'left' },
+                        2: { cellWidth: 16, halign: 'center', fontStyle: 'bold' },
+                        3: { cellWidth: 20, halign: 'right' },
+                        4: { cellWidth: 24, halign: 'right', fontStyle: 'bold' }
+                    },
+                    margin: { left: 10, right: 10 }
+                });
+
+                const finalY = (doc.lastAutoTable && doc.lastAutoTable.finalY) ? doc.lastAutoTable.finalY + 4 : 115;
+
+                // Recuadro Total a Pagar
+                doc.setFillColor(241, 245, 249);
+                doc.setDrawColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                doc.setLineWidth(0.6);
+                doc.roundedRect(78, finalY, 60, 20, 1.5, 1.5, 'FD');
+
+                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(7.5);
+                doc.setTextColor(cGrisTexto[0], cGrisTexto[1], cGrisTexto[2]);
+                doc.text("Total Unidades:", 82, finalY + 7);
+                doc.setFont('helvetica', 'bold');
+                doc.text((venta.totalUnidades || 0) + " u.", 134, finalY + 7, { align: 'right' });
+
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(9);
+                doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                doc.text("TOTAL A PAGAR:", 82, finalY + 15);
+                doc.setFontSize(11.5);
+                doc.text("$" + (Number(venta.totalMonto) || 0).toFixed(2), 134, finalY + 15, { align: 'right' });
+
+                // Pie de página de agradecimiento
+                doc.setFont('helvetica', 'italic');
+                doc.setFontSize(7.5);
+                doc.setTextColor(100, 116, 139);
+                doc.text("¡Muchas gracias por su preferencia!", 10, finalY + 9);
+                doc.setFontSize(6.5);
+                doc.text("Garantía de Frescura & Calidad Avena Polaca", 10, finalY + 14);
+
+                const safeCliente = (venta.cliente || 'Cliente').replace(/[^a-zA-Z0-9]/g, '_');
+                const safeNum = (venta.numeroNota || 'NV').replace(/[^a-zA-Z0-9_-]/g, '');
+                doc.save(`NotaVenta_${safeNum}_${safeCliente}_${venta.fecha || today}.pdf`);
+                mostrarAviso("✓ PDF de Nota de Venta descargado con éxito");
+            } catch(err) {
+                console.error("Error PDF:", err);
+                setError("Error al descargar PDF: " + (err.message || err));
+            }
+        };
+
+        // Descargar PDF de Cierre Diario (Totales por item y clientes)
+        const descargarPdfCierreDia = (cierre) => {
+            const { jsPDF } = window.jspdf || {};
+            if (typeof jsPDF !== 'function') return;
+            try {
+                const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+                const cVerdeOscuro = [7, 94, 84];
+                const cTeal = [18, 140, 126];
+
+                doc.setFillColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                doc.rect(0, 0, 210, 8, 'F');
+
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(16);
+                doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                doc.text("AUSTROPOLACA CONTROL - CIERRE DIARIO DE VENTAS", 14, 20);
+
+                doc.setFontSize(10);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(cTeal[0], cTeal[1], cTeal[2]);
+                doc.text(`Fecha: ${cierre.fecha} • Clientes Atendidos: ${cierre.totalClientes} • Unidades Vendidas: ${cierre.totalUnidades} u. • Total: $${cierre.totalVentasMonto.toFixed(2)}`, 14, 27);
+
+                // Tabla consolidada por ITEM
+                const itemRows = cierre.porItem.map((it, idx) => [
+                    String(idx + 1),
+                    it.nombreCorto || it.nombre,
+                    "$" + it.pvd.toFixed(2),
+                    it.unidadesVendidas + " u.",
+                    "$" + it.montoVendido.toFixed(2),
+                    it.porcentajeTotal + "%"
+                ]);
+
+                doc.autoTable({
+                    startY: 33,
+                    head: [['#', 'Item / Presentación de Avena Polaca', 'P. Venta Ref.', 'Unidades Vendidas', 'Total Venta ($)', '% Participación']],
+                    body: itemRows,
+                    theme: 'grid',
+                    headStyles: { fillColor: cVerdeOscuro, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8.5 },
+                    foot: [['', 'TOTAL GENERAL DEL DÍA', '', cierre.totalUnidades + ' u.', '$' + cierre.totalVentasMonto.toFixed(2), '100%']],
+                    footStyles: { fillColor: [241, 245, 249], textColor: cVerdeOscuro, fontStyle: 'bold', fontSize: 9 }
+                });
+
+                let nextY = doc.lastAutoTable.finalY + 10;
+                doc.setFont('helvetica', 'bold');
+                doc.setFontSize(12);
+                doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
+                doc.text("VENTAS POR CLIENTE DEL DÍA", 14, nextY);
+
+                const clientRows = cierre.ventas.map((v, idx) => {
+                    const desc = (v.items || []).map(it => `${it.q}x ${it.peso || it.nombreCorto}`).join(', ');
+                    return [
+                        String(idx + 1),
+                        v.numeroNota || '-',
+                        v.hora || '',
+                        v.cliente || 'Consumidor Final',
+                        v.telefono || '-',
+                        desc,
+                        "$" + (Number(v.totalMonto) || 0).toFixed(2)
+                    ];
+                });
+
+                doc.autoTable({
+                    startY: nextY + 4,
+                    head: [['#', 'Nota', 'Hora', 'Cliente', 'Teléfono', 'Productos Comprados', 'Total Pagado']],
+                    body: clientRows,
+                    theme: 'striped',
+                    headStyles: { fillColor: cTeal, textColor: [255, 255, 255], fontStyle: 'bold', fontSize: 8 },
+                    foot: [['', '', '', 'TOTAL', '', cierre.totalUnidades + ' u.', '$' + cierre.totalVentasMonto.toFixed(2)]],
+                    footStyles: { fillColor: [241, 245, 249], textColor: cVerdeOscuro, fontStyle: 'bold', fontSize: 8.5 }
+                });
+
+                doc.save(`Cierre_Ventas_${cierre.fecha}.pdf`);
+                mostrarAviso("✓ PDF de Cierre Diario descargado con éxito");
+            } catch(e) {
+                console.error(e);
+            }
+        };
+
+        // Exportar Cierre Diario a Excel (.xlsx)
+        const exportarCierreExcel = (cierre) => {
+            if (typeof window.XLSX === 'undefined') {
+                mostrarAviso("Librería Excel cargando... intenta en un segundo.");
+                return;
+            }
+            try {
+                const wb = XLSX.utils.book_new();
+
+                // Hoja 1: Resumen por Item
+                const headersItem = [["#", "ITEM / PRODUCTO", "PRECIO VENTA REF ($)", "UNIDADES VENDIDAS", "TOTAL RECAUDADO ($)", "% PARTICIPACIÓN"]];
+                const rowsItem = cierre.porItem.map((it, idx) => [
+                    idx + 1,
+                    it.nombreCorto || it.nombre,
+                    it.pvd,
+                    it.unidadesVendidas,
+                    it.montoVendido,
+                    it.porcentajeTotal + "%"
+                ]);
+                rowsItem.push(["", "TOTAL GENERAL DEL DÍA", "", cierre.totalUnidades, cierre.totalVentasMonto, "100%"]);
+                const wsItem = XLSX.utils.aoa_to_sheet([...headersItem, ...rowsItem]);
+                XLSX.utils.book_append_sheet(wb, wsItem, "Cierre por Item");
+
+                // Hoja 2: Ventas por Cliente
+                const headersCliente = [["#", "NOTA", "FECHA", "HORA", "CLIENTE", "TELÉFONO", "DIRECCIÓN", "DETALLE", "UNIDADES", "TOTAL ($)"]];
+                const rowsCliente = cierre.ventas.map((v, idx) => [
+                    idx + 1,
+                    v.numeroNota,
+                    v.fecha,
+                    v.hora,
+                    v.cliente,
+                    v.telefono || '',
+                    v.direccion || '',
+                    v.detalle || '',
+                    v.totalUnidades,
+                    v.totalMonto
+                ]);
+                const wsCliente = XLSX.utils.aoa_to_sheet([...headersCliente, ...rowsCliente]);
+                XLSX.utils.book_append_sheet(wb, wsCliente, "Ventas por Cliente");
+
+                XLSX.writeFile(wb, `Cierre_Diario_Ventas_${cierre.fecha}.xlsx`);
+                mostrarAviso("✓ Archivo Excel descargado con éxito");
+            } catch(err) {
+                console.error(err);
+                setError("Error al exportar Excel: " + (err.message || err));
+            }
+        };
+
+        // Compartir por WhatsApp al cliente
+        const compartirNotaWhatsApp = (venta) => {
+            const telefonoLimpio = (venta.telefono || '').replace(/\D/g, '');
+            let telNum = '';
+            if (telefonoLimpio) {
+                if (telefonoLimpio.startsWith('0')) {
+                    telNum = '593' + telefonoLimpio.substring(1);
+                } else if (telefonoLimpio.startsWith('593')) {
+                    telNum = telefonoLimpio;
+                } else {
+                    telNum = '593' + telefonoLimpio;
+                }
+            }
+
+            const itemsValidos = (venta.items || []).filter(it => (parseInt(it.q) || 0) > 0);
+            const itemsTexto = itemsValidos.map(it => {
+                const cant = parseInt(it.q) || 0;
+                const pUnit = parseFloat(it.pvd) || 0;
+                const sub = Number(it.subtotal) || (cant * pUnit);
+                const nom = (it.nombreCorto || it.nombre || '').replace('01 EMPACADO ', '').replace('02 EMPACADO ', '').replace('03 EMPACADO ', '').replace('04 EMPACADO ', '').replace('05 EMPACADO ', '');
+                return `• ${cant}x ${nom} ($${pUnit.toFixed(2)}) = *$${sub.toFixed(2)}*`;
+            }).join('\n');
+
+            const msg = `🧾 *NOTA DE VENTA - AUSTROPOLACA*
+📋 *No:* ${venta.numeroNota || 'NV-0001'}
+📅 *Fecha:* ${venta.fecha || today} ${venta.hora ? '• ' + venta.hora : ''}
+👤 *Cliente:* ${venta.cliente || 'Consumidor Final'}
+${venta.telefono ? '📞 *Tel:* ' + venta.telefono + '\n' : ''}${venta.direccion ? '📍 *Dirección:* ' + venta.direccion + '\n' : ''}${venta.detalle ? '📝 *Detalle:* ' + venta.detalle + '\n' : ''}
+*DETALLE DE PRODUCTOS:*
+${itemsTexto}
+----------------------------------------
+📦 *Total Unidades:* ${venta.totalUnidades || 0} u.
+💰 *TOTAL A PAGAR: $${(Number(venta.totalMonto) || 0).toFixed(2)}*
+----------------------------------------
+¡Muchas gracias por su preferencia! ✨
+_AustroPolaca Control - Garantía de Calidad y Frescura_`;
+
+            const encoded = encodeURIComponent(msg);
+            const url = telNum ? `https://wa.me/${telNum}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
+            window.open(url, '_blank');
         };
 
         // ── PERSISTENCIA Y FUNCIONES DE NOTAS RÁPIDAS & SEGUIMIENTO DE TAREAS ──
@@ -855,6 +1493,11 @@
                     FB.onSnapshot(col('notasTareas'), s => {
                         if (!s.empty) {
                             setNotasTareas(s.docs.map(d=>({id:d.id, ...d.data()})));
+                        }
+                    }, () => {});
+                    FB.onSnapshot(col('ventasNotas'), s => {
+                        if (!s.empty) {
+                            setVentasNotas(s.docs.map(d=>({id:d.id, ...d.data()})));
                         }
                     }, () => {});
                 } catch(e) {
@@ -3052,6 +3695,7 @@
 
         // Pestañas de navegación
         const navItems = [
+            { id: 'notaVenta',      icon: 'file-text',        label: 'Nota de Venta',     badge: resumenCierreDia.totalClientes > 0 ? `${resumenCierreDia.totalClientes} hoy` : 'ÁGIL' },
             { id: 'inicio',         icon: 'layout-grid',      label: 'Inicio',            badge: 'LIVE' },
             { id: 'notasRapidas',   icon: 'check-square',     label: 'Notas & Tareas',    badge: statsNotas.pendientes > 0 ? `${statsNotas.pendientes} pend.` : (statsNotas.total > 0 ? `${statsNotas.total}` : undefined) },
             { id: 'bodega',         icon: 'package',          label: 'Bodega',            badge: totalesBodega.stockTotal + ' u.' },
@@ -3101,6 +3745,14 @@
                 </div>
 
                 <div className="flex items-center gap-2">
+                    <button
+                        onClick={() => setActiveTab('notaVenta')}
+                        className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] font-black transition-all ${activeTab === 'notaVenta' ? 'bg-white text-[#075E54] shadow-md scale-105' : 'bg-[#25D366] hover:bg-[#20ba5a] text-[#075E54] shadow'}`}
+                        title="Nota de Venta Rápida"
+                    >
+                        <Icon name="file-text" size={13}/>
+                        <span>Nota de Venta</span>
+                    </button>
                     <button
                         onClick={() => setActiveTab('notasRapidas')}
                         className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 rounded-xl text-[11px] font-black transition-all ${activeTab === 'notasRapidas' ? 'bg-white text-[#075E54] shadow-md' : 'bg-white/15 hover:bg-white/25 text-white border border-white/20'}`}
@@ -3296,6 +3948,777 @@
                         </div>
                         <button onClick={() => setError(null)} className="text-red-400 hover:text-red-700"><Icon name="x" size={14}/></button>
                     </div>
+                )}
+
+                {/* ═══════════════════════════════════════════════════════
+                    PESTAÑA 1: NOTA DE VENTA ÁGIL & CIERRE DIARIO
+                ═══════════════════════════════════════════════════════ */}
+                {activeTab === 'notaVenta' && (
+                <div className="space-y-5 fade-in">
+                    {/* CABECERA PRINCIPAL NOTA DE VENTA */}
+                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 bg-gradient-to-r from-[#075E54] via-[#0D7A6D] to-[#128C7E] text-white p-5 sm:p-6 rounded-3xl shadow-xl border border-emerald-400/30">
+                        <div className="flex items-center gap-3.5">
+                            <div className="w-13 h-13 sm:w-14 sm:h-14 rounded-2xl bg-white/15 backdrop-blur-md flex items-center justify-center shrink-0 shadow-inner border border-white/25">
+                                <Icon name="receipt" size={28} className="text-[#25D366]"/>
+                            </div>
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-xl sm:text-2xl font-black uppercase tracking-tight italic">
+                                        Nota de Venta Ágil
+                                    </h2>
+                                    <span className="bg-[#25D366] text-[#075E54] text-[10px] font-black px-2.5 py-0.5 rounded-full not-italic tracking-wider shadow-sm">
+                                        VENTA DIRECTA
+                                    </span>
+                                </div>
+                                <p className="text-xs text-emerald-100 font-medium mt-0.5">
+                                    Precios oficiales precargados: 0.42 (165g), 0.84 (340g), 1.05 (1/2L). Suma automática, edición manual de precio y descarga de PDF para el cliente.
+                                </p>
+                            </div>
+                        </div>
+
+                        {/* SUB-TABS: NUEVA NOTA / CIERRE DEL DÍA / HISTORIAL */}
+                        <div className="flex items-center gap-1.5 bg-black/20 backdrop-blur-md p-1 rounded-2xl border border-white/15 w-full md:w-auto">
+                            <button
+                                type="button"
+                                onClick={() => setSubTabVenta('nueva')}
+                                className={`flex-1 md:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all ${subTabVenta === 'nueva' ? 'bg-white text-[#075E54] shadow-md' : 'text-white/80 hover:text-white'}`}
+                            >
+                                <Icon name="plus-circle" size={14}/>
+                                <span>Nueva Nota</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setSubTabVenta('cierre')}
+                                className={`flex-1 md:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all ${subTabVenta === 'cierre' ? 'bg-white text-[#075E54] shadow-md' : 'text-white/80 hover:text-white'}`}
+                            >
+                                <Icon name="pie-chart" size={14}/>
+                                <span>Cierre del Día</span>
+                                {resumenCierreDia.totalClientes > 0 && (
+                                    <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-extrabold ${subTabVenta === 'cierre' ? 'bg-[#075E54] text-white' : 'bg-emerald-400 text-slate-900'}`}>
+                                        ${resumenCierreDia.totalVentasMonto.toFixed(0)}
+                                    </span>
+                                )}
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setSubTabVenta('todas')}
+                                className={`flex-1 md:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black transition-all ${subTabVenta === 'todas' ? 'bg-white text-[#075E54] shadow-md' : 'text-white/80 hover:text-white'}`}
+                            >
+                                <Icon name="list" size={14}/>
+                                <span>Historial ({ventasNotas.length})</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* VISTA 1: FORMULARIO ÁGIL DE NUEVA NOTA DE VENTA */}
+                    {subTabVenta === 'nueva' && (
+                    <div className="space-y-5">
+                        {/* DATOS DEL CLIENTE Y CABECERA DE LA NOTA */}
+                        <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-md space-y-4">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-slate-100">
+                                <div className="flex items-center gap-2">
+                                    <span className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-black text-sm">1</span>
+                                    <div>
+                                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                                            Información del Cliente & Comprobante
+                                        </h3>
+                                        <p className="text-[11px] text-slate-400 font-medium">Completa los datos antes de emitir y descargar la nota de venta</p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2 w-full sm:w-auto">
+                                    <span className="text-xs font-black text-slate-500 bg-slate-100 px-3 py-1 rounded-xl border border-slate-200">
+                                        Nota: <strong className="text-slate-800">{formNota.numeroNota || `NV-${String((ventasNotas.length || 0) + 1).padStart(4, '0')}`}</strong>
+                                    </span>
+                                    <button
+                                        type="button"
+                                        onClick={limpiarFormNota}
+                                        className="text-xs font-bold text-slate-500 hover:text-rose-600 bg-slate-50 hover:bg-rose-50 px-2.5 py-1 rounded-xl border border-slate-200 transition-all flex items-center gap-1"
+                                        title="Limpiar y reiniciar campos de la nota"
+                                    >
+                                        <Icon name="rotate-ccw" size={12}/>
+                                        <span>Limpiar</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
+                                {/* Fecha */}
+                                <div>
+                                    <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1 flex items-center justify-between">
+                                        <span>Fecha *</span>
+                                        <div className="flex gap-1 text-[10px]">
+                                            <button
+                                                type="button"
+                                                onClick={() => setFormNota(p => ({ ...p, fecha: today }))}
+                                                className={`px-1.5 py-0.5 rounded ${formNota.fecha === today ? 'bg-emerald-100 text-emerald-800 font-black' : 'text-slate-400 hover:text-slate-700'}`}
+                                            >
+                                                Hoy
+                                            </button>
+                                        </div>
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={formNota.fecha}
+                                        onChange={(e) => setFormNota({ ...formNota, fecha: e.target.value })}
+                                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner"
+                                    />
+                                </div>
+
+                                {/* Nombre del Cliente */}
+                                <div className="sm:col-span-2">
+                                    <label className="block text-[11px] font-black uppercase tracking-wider text-slate-700 mb-1 flex items-center justify-between">
+                                        <span className="flex items-center gap-1 text-[#075E54]">
+                                            <Icon name="user" size={13}/>
+                                            <span>Nombre del Cliente / Negocio *</span>
+                                        </span>
+                                        <span className="text-[10px] text-emerald-600 font-bold">Obligatorio</span>
+                                    </label>
+                                    <div className="relative">
+                                        <input
+                                            type="text"
+                                            list="clientes-registrados"
+                                            value={formNota.cliente}
+                                            onChange={(e) => setFormNota({ ...formNota, cliente: e.target.value })}
+                                            placeholder="Ej: Tienda Don Pepe, Minimarket Central, Consumidor Final..."
+                                            className="w-full p-2.5 bg-emerald-50/30 border border-emerald-300 rounded-xl text-xs font-extrabold text-slate-800 outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner"
+                                        />
+                                        <datalist id="clientes-registrados">
+                                            {clientesVentasSugeridos.map((c, i) => (
+                                                <option key={i} value={c.nombre}>{c.direccion ? `📍 ${c.direccion}` : ''}</option>
+                                            ))}
+                                        </datalist>
+                                    </div>
+                                </div>
+
+                                {/* Número de Nota */}
+                                <div>
+                                    <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1">
+                                        Nº Comprobante
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formNota.numeroNota}
+                                        onChange={(e) => setFormNota({ ...formNota, numeroNota: e.target.value })}
+                                        placeholder={`NV-${String((ventasNotas.length || 0) + 1).padStart(4, '0')}`}
+                                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner"
+                                    />
+                                </div>
+
+                                {/* Dirección (Opcional) */}
+                                <div>
+                                    <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
+                                        <Icon name="map-pin" size={12}/>
+                                        <span>Dirección (Opcional)</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formNota.direccion}
+                                        onChange={(e) => setFormNota({ ...formNota, direccion: e.target.value })}
+                                        placeholder="Ej: Av. Huayna Cápac y Gran Colombia..."
+                                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner"
+                                    />
+                                </div>
+
+                                {/* Teléfono (Opcional) */}
+                                <div>
+                                    <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
+                                        <Icon name="phone" size={12}/>
+                                        <span>Teléfono / WhatsApp (Opcional)</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formNota.telefono}
+                                        onChange={(e) => setFormNota({ ...formNota, telefono: e.target.value })}
+                                        placeholder="Ej: 0986192823"
+                                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner"
+                                    />
+                                </div>
+
+                                {/* Detalle / Observación */}
+                                <div className="sm:col-span-2">
+                                    <label className="block text-[11px] font-black uppercase tracking-wider text-slate-500 mb-1 flex items-center gap-1">
+                                        <Icon name="file-text" size={12}/>
+                                        <span>Detalle / Observaciones (Opcional)</span>
+                                    </label>
+                                    <input
+                                        type="text"
+                                        value={formNota.detalle}
+                                        onChange={(e) => setFormNota({ ...formNota, detalle: e.target.value })}
+                                        placeholder="Ej: Cobro en efectivo, entrega en local, pedido especial..."
+                                        className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-semibold text-slate-800 outline-none focus:border-emerald-600 focus:bg-white transition-all shadow-inner"
+                                    />
+                                </div>
+                            </div>
+
+                            {/* Chips de clientes frecuentes para 1-clic */}
+                            {clientesVentasSugeridos.length > 0 && (
+                                <div className="pt-2 flex flex-wrap items-center gap-1.5">
+                                    <span className="text-[10px] font-black uppercase text-slate-400">Clientes Frecuentes:</span>
+                                    {clientesVentasSugeridos.slice(0, 6).map((c, idx) => (
+                                        <button
+                                            key={idx}
+                                            type="button"
+                                            onClick={() => seleccionarClienteSugerido(c)}
+                                            className="px-2.5 py-1 bg-slate-100 hover:bg-emerald-100 text-slate-700 hover:text-emerald-900 rounded-lg text-[11px] font-bold transition-all border border-slate-200/80 active:scale-95"
+                                        >
+                                            {c.nombre}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        {/* SECCIÓN 2: GRILLA DE PRODUCTOS CON PRECIOS OFICIALES Y CANTIDAD (ÁGIL) */}
+                        <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-md space-y-4">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-slate-100">
+                                <div className="flex items-center gap-2">
+                                    <span className="w-8 h-8 rounded-xl bg-emerald-50 text-emerald-700 flex items-center justify-center font-black text-sm">2</span>
+                                    <div>
+                                        <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                                            Selección de Items & Precios de Venta
+                                        </h3>
+                                        <p className="text-[11px] text-slate-400 font-medium">
+                                            Precios precargados: <strong>$0.42</strong> (165g/160g), <strong>$0.84</strong> (340g), <strong>$1.05</strong> (500g Medio Litro). Puedes modificar el precio manualmente si requieres un precio especial.
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <span className="text-xs font-black text-emerald-800 bg-emerald-100 px-3 py-1 rounded-xl">
+                                        {totalesNotaActiva.totalUnidades} u. en pedido
+                                    </span>
+                                </div>
+                            </div>
+
+                            {/* CARDS DE PRODUCTOS */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                                {formNota.items.map((it) => {
+                                    const cant = parseInt(it.q) || 0;
+                                    const pvdNum = parseFloat(it.pvd) || 0;
+                                    const subtotal = cant * pvdNum;
+                                    const esModificado = Math.abs(pvdNum - it.pvdDefault) > 0.001;
+                                    const tieneCantidad = cant > 0;
+
+                                    return (
+                                        <div
+                                            key={it.id}
+                                            className={`p-4 rounded-2xl border-2 transition-all flex flex-col justify-between gap-3 ${tieneCantidad ? 'bg-emerald-50/40 border-emerald-500 shadow-sm' : 'bg-slate-50/70 border-slate-200 hover:border-slate-300'}`}
+                                        >
+                                            {/* Cabecera del Item */}
+                                            <div>
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-2xl shrink-0">{it.id === 'p1' ? '🥛' : it.id === 'p5' ? '🌱' : it.id === 'p2' ? '🥤' : it.id === 'p3' ? '🍶' : '🧃'}</span>
+                                                        <div>
+                                                            <h4 className="text-xs font-black text-slate-900 leading-tight">
+                                                                {it.nombreCorto || it.nombre}
+                                                            </h4>
+                                                            <span className="text-[10px] text-slate-400 font-bold block mt-0.5">
+                                                                Cód: {it.codigo} • Peso: {it.peso}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    {tieneCantidad && (
+                                                        <span className="bg-emerald-600 text-white text-[10px] font-black px-2 py-0.5 rounded-full shrink-0 shadow-sm animate-pulse">
+                                                            ✓ {cant} u.
+                                                        </span>
+                                                    )}
+                                                </div>
+
+                                                {/* Precio de Venta (Editable manualmente de ser necesario) */}
+                                                <div className="mt-3 p-2.5 bg-white rounded-xl border border-slate-200/90 flex items-center justify-between gap-2">
+                                                    <div className="flex items-center gap-1 text-[11px] font-black text-slate-600">
+                                                        <Icon name="tag" size={13} className="text-emerald-600"/>
+                                                        <span>Precio Venta:</span>
+                                                    </div>
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className="text-xs font-black text-slate-400">$</span>
+                                                        <input
+                                                            type="number"
+                                                            step="0.01"
+                                                            min="0"
+                                                            value={it.pvd}
+                                                            onChange={(e) => cambiarPrecioItemNota(it.id, e.target.value)}
+                                                            className={`w-20 p-1 text-right text-xs font-black rounded-lg border outline-none transition-all ${esModificado ? 'bg-amber-50 border-amber-400 text-amber-900 font-black' : 'bg-slate-50 border-slate-200 text-slate-800 focus:bg-white focus:border-emerald-600'}`}
+                                                            title="Puedes editar el precio unitario manualmente"
+                                                        />
+                                                        {esModificado && (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => restaurarPrecioItemNota(it.id)}
+                                                                className="p-1 text-[9px] font-extrabold text-amber-700 bg-amber-100 hover:bg-amber-200 rounded-md transition-all shrink-0"
+                                                                title="Restaurar al precio oficial"
+                                                            >
+                                                                ↺ ${it.pvdDefault}
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* Controles de Cantidad */}
+                                            <div className="space-y-2">
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className="text-[10px] font-black uppercase text-slate-400">Cantidad:</span>
+                                                    {tieneCantidad && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => fijarCantidadItemNota(it.id, 0)}
+                                                            className="text-[10px] font-bold text-rose-500 hover:text-rose-700"
+                                                        >
+                                                            Poner en 0
+                                                        </button>
+                                                    )}
+                                                </div>
+
+                                                {/* Stepper principal */}
+                                                <div className="flex items-center gap-1.5 bg-white p-1 rounded-xl border border-slate-200 shadow-inner">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => cambiarCantidadItemNota(it.id, -1)}
+                                                        className="w-8 h-8 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 font-black text-sm flex items-center justify-center transition-all active:scale-95"
+                                                    >
+                                                        -
+                                                    </button>
+                                                    <input
+                                                        type="number"
+                                                        min="0"
+                                                        value={it.q === 0 ? '' : it.q}
+                                                        onChange={(e) => fijarCantidadItemNota(it.id, e.target.value)}
+                                                        placeholder="0"
+                                                        className="flex-1 text-center font-black text-sm text-slate-900 bg-transparent outline-none"
+                                                    />
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => cambiarCantidadItemNota(it.id, 1)}
+                                                        className="w-8 h-8 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-black text-sm flex items-center justify-center transition-all active:scale-95 shadow-sm"
+                                                    >
+                                                        +
+                                                    </button>
+                                                </div>
+
+                                                {/* Botones de incremento rápido (+5, +10, +25, +50, +100) */}
+                                                <div className="flex items-center justify-between gap-1 pt-1">
+                                                    {[5, 10, 25, 50, 100].map(inc => (
+                                                        <button
+                                                            key={inc}
+                                                            type="button"
+                                                            onClick={() => cambiarCantidadItemNota(it.id, inc)}
+                                                            className="flex-1 py-1 rounded-md bg-white hover:bg-emerald-100 text-slate-600 hover:text-emerald-800 text-[10px] font-black border border-slate-200/80 transition-all active:scale-95 shadow-2xs"
+                                                        >
+                                                            +{inc}
+                                                        </button>
+                                                    ))}
+                                                </div>
+
+                                                {/* Subtotal del item */}
+                                                <div className="pt-2 flex items-center justify-between border-t border-slate-200/60">
+                                                    <span className="text-[11px] font-bold text-slate-400">Subtotal Item:</span>
+                                                    <span className={`text-sm font-black ${tieneCantidad ? 'text-emerald-700' : 'text-slate-400'}`}>
+                                                        ${subtotal.toFixed(2)}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* BARRA DE TOTAL Y ACCIONES PRINCIPALES (STICKY / PROMINENTE) */}
+                        <div className="sticky bottom-3 z-30 bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 text-white p-5 rounded-3xl shadow-2xl border border-slate-700 flex flex-col md:flex-row justify-between items-center gap-4">
+                            <div className="flex items-center gap-4 w-full md:w-auto justify-between md:justify-start">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center shrink-0">
+                                        <Icon name="shopping-bag" size={24} className="text-emerald-400"/>
+                                    </div>
+                                    <div>
+                                        <span className="text-[10px] font-black uppercase tracking-wider text-slate-400 block">
+                                            Total a Pagar ({totalesNotaActiva.totalUnidades} unidades)
+                                        </span>
+                                        <p className="text-2xl sm:text-3xl font-black text-emerald-400 tracking-tight leading-none mt-0.5">
+                                            ${totalesNotaActiva.totalMonto.toFixed(2)}
+                                        </p>
+                                    </div>
+                                </div>
+                                <div className="text-right md:hidden">
+                                    <span className="text-[10px] text-slate-400 block">{formNota.cliente || 'Consumidor Final'}</span>
+                                    <span className="text-xs font-bold text-white">{formNota.fecha}</span>
+                                </div>
+                            </div>
+
+                            {/* Botones de acción */}
+                            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 w-full md:w-auto">
+                                <button
+                                    type="button"
+                                    onClick={guardarVentaNota}
+                                    className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-3 bg-[#25D366] hover:bg-[#20ba5a] text-[#075E54] font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95"
+                                    title="Guardar la venta y registrar en el cierre diario"
+                                >
+                                    <Icon name="check-circle" size={17}/>
+                                    <span>Guardar Venta</span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const itemsValidos = (formNota.items || []).filter(it => (parseInt(it.q) || 0) > 0);
+                                        if (itemsValidos.length === 0) {
+                                            setError("Agrega al menos 1 item con cantidad mayor a 0 para generar el PDF.");
+                                            return;
+                                        }
+                                        descargarPdfNotaVenta({
+                                            numeroNota: formNota.numeroNota || `NV-${String((ventasNotas.length || 0) + 1).padStart(4, '0')}`,
+                                            fecha: formNota.fecha || today,
+                                            hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                                            cliente: (formNota.cliente || '').trim() || 'Consumidor Final',
+                                            telefono: formNota.telefono,
+                                            direccion: formNota.direccion,
+                                            detalle: formNota.detalle,
+                                            totalUnidades: totalesNotaActiva.totalUnidades,
+                                            totalMonto: totalesNotaActiva.totalMonto,
+                                            items: itemsValidos
+                                        });
+                                    }}
+                                    className="flex-1 sm:flex-initial flex items-center justify-center gap-1.5 px-4 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-2xl text-xs uppercase tracking-wider shadow transition-all active:scale-95"
+                                    title="Descargar PDF de esta nota para enviar al cliente"
+                                >
+                                    <Icon name="download" size={16}/>
+                                    <span>Descargar PDF</span>
+                                </button>
+
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        const itemsValidos = (formNota.items || []).filter(it => (parseInt(it.q) || 0) > 0);
+                                        if (itemsValidos.length === 0) {
+                                            setError("Agrega al menos 1 item con cantidad para compartir por WhatsApp.");
+                                            return;
+                                        }
+                                        compartirNotaWhatsApp({
+                                            numeroNota: formNota.numeroNota || `NV-${String((ventasNotas.length || 0) + 1).padStart(4, '0')}`,
+                                            fecha: formNota.fecha || today,
+                                            hora: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                                            cliente: (formNota.cliente || '').trim() || 'Consumidor Final',
+                                            telefono: formNota.telefono,
+                                            direccion: formNota.direccion,
+                                            detalle: formNota.detalle,
+                                            totalUnidades: totalesNotaActiva.totalUnidades,
+                                            totalMonto: totalesNotaActiva.totalMonto,
+                                            items: itemsValidos
+                                        });
+                                    }}
+                                    className="flex items-center justify-center gap-1.5 px-3.5 py-3 bg-white/10 hover:bg-white/20 text-white font-bold rounded-2xl text-xs transition-all border border-white/20"
+                                    title="Enviar detalle por WhatsApp"
+                                >
+                                    <Icon name="share-2" size={15} className="text-[#25D366]"/>
+                                    <span className="hidden sm:inline">WhatsApp</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    )}
+
+                    {/* VISTA 2: CIERRE Y RESUMEN DEL DÍA (TOTALES POR CADA ITEM Y CADA CLIENTE) */}
+                    {(subTabVenta === 'cierre' || subTabVenta === 'todas') && (
+                    <div className="space-y-5">
+                        {/* BARRA DE FILTRO POR FECHA Y DESCARGAS DEL CIERRE */}
+                        <div className="bg-white p-4 sm:p-5 rounded-3xl border border-slate-200/90 shadow-md flex flex-col md:flex-row justify-between items-start md:items-center gap-3">
+                            <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                                <span className="text-xs font-black text-slate-700 flex items-center gap-1.5">
+                                    <Icon name="calendar" size={15} className="text-[#075E54]"/>
+                                    <span>Fecha de Cierre:</span>
+                                </span>
+                                <input
+                                    type="date"
+                                    value={filtroFechaVentas === 'todas' ? today : filtroFechaVentas}
+                                    onChange={(e) => setFiltroFechaVentas(e.target.value)}
+                                    className="p-1.5 px-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold text-slate-800 outline-none focus:border-emerald-600 shadow-inner"
+                                />
+                                <div className="inline-flex rounded-xl bg-slate-100 p-0.5 border border-slate-200">
+                                    <button
+                                        type="button"
+                                        onClick={() => setFiltroFechaVentas(today)}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${filtroFechaVentas === today ? 'bg-[#075E54] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                    >
+                                        Hoy
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const ayer = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+                                            setFiltroFechaVentas(ayer);
+                                        }}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${filtroFechaVentas !== today && filtroFechaVentas !== 'todas' ? 'bg-[#075E54] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                    >
+                                        Ayer
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFiltroFechaVentas('todas')}
+                                        className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all ${filtroFechaVentas === 'todas' ? 'bg-[#075E54] text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
+                                    >
+                                        Todas las fechas
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Botones para descargar cierre */}
+                            <div className="flex items-center gap-2 w-full md:w-auto">
+                                <button
+                                    type="button"
+                                    onClick={() => descargarPdfCierreDia(resumenCierreDia)}
+                                    disabled={resumenCierreDia.totalClientes === 0}
+                                    className="flex-1 md:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all shadow"
+                                    title="Descargar documento PDF con el consolidado del día"
+                                >
+                                    <Icon name="download" size={14}/>
+                                    <span>Descargar PDF Cierre</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => exportarCierreExcel(resumenCierreDia)}
+                                    disabled={resumenCierreDia.totalClientes === 0}
+                                    className="flex-1 md:flex-initial flex items-center justify-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold rounded-xl text-xs transition-all shadow"
+                                    title="Descargar hoja de cálculo Excel (.xlsx)"
+                                >
+                                    <Icon name="file-spreadsheet" size={14}/>
+                                    <span>Exportar Excel</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* METRICAS Y KPIS DEL CIERRE */}
+                        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                            <div className="oneui-card p-4 border-l-4 border-emerald-600 shadow-sm bg-white">
+                                <span className="text-[10px] font-black uppercase text-slate-400">Total Venta ($)</span>
+                                <p className="text-2xl font-black text-emerald-700 mt-1">
+                                    ${resumenCierreDia.totalVentasMonto.toFixed(2)}
+                                </p>
+                                <span className="text-[11px] font-bold text-slate-500 mt-0.5 block">
+                                    {filtroFechaVentas === 'todas' ? 'Todas las ventas registradas' : `Venta de ${filtroFechaVentas}`}
+                                </span>
+                            </div>
+
+                            <div className="oneui-card p-4 border-l-4 border-teal-500 shadow-sm bg-white">
+                                <span className="text-[10px] font-black uppercase text-slate-400">Unidades Totales</span>
+                                <p className="text-2xl font-black text-teal-700 mt-1">
+                                    {resumenCierreDia.totalUnidades.toLocaleString()} <span className="text-xs font-normal text-slate-400">u.</span>
+                                </p>
+                                <span className="text-[11px] font-bold text-teal-700 mt-0.5 block">Avena Polaca despachada</span>
+                            </div>
+
+                            <div className="oneui-card p-4 border-l-4 border-blue-500 shadow-sm bg-white">
+                                <span className="text-[10px] font-black uppercase text-slate-400">Clientes Atendidos</span>
+                                <p className="text-2xl font-black text-blue-700 mt-1">
+                                    {resumenCierreDia.totalClientes}
+                                </p>
+                                <span className="text-[11px] font-bold text-slate-500 mt-0.5 block">Comprobantes emitidos</span>
+                            </div>
+
+                            <div className="oneui-card p-4 border-l-4 border-purple-500 shadow-sm bg-white">
+                                <span className="text-[10px] font-black uppercase text-slate-400">Ticket Promedio</span>
+                                <p className="text-2xl font-black text-purple-700 mt-1">
+                                    ${resumenCierreDia.ticketPromedio.toFixed(2)}
+                                </p>
+                                <span className="text-[11px] font-bold text-purple-700 mt-0.5 block">Promedio por cliente</span>
+                            </div>
+                        </div>
+
+                        {/* ═══ CONSOLIDADO TOTAL POR CADA ITEM ═══ */}
+                        <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-md space-y-3">
+                            <div className="flex items-center justify-between pb-2 border-b border-slate-100">
+                                <div className="flex items-center gap-2">
+                                    <Icon name="package" size={18} className="text-[#075E54]"/>
+                                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                                        Total de Ventas por Cada Item
+                                    </h3>
+                                </div>
+                                <span className="text-xs font-black text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                                    {resumenCierreDia.totalUnidades} u. totales • ${resumenCierreDia.totalVentasMonto.toFixed(2)}
+                                </span>
+                            </div>
+
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left text-xs">
+                                    <thead>
+                                        <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-black uppercase text-slate-500">
+                                            <th className="p-3">#</th>
+                                            <th className="p-3">Item / Presentación</th>
+                                            <th className="p-3 text-center">P. Ref. Venta</th>
+                                            <th className="p-3 text-center">Unidades Vendidas</th>
+                                            <th className="p-3 text-right">Total Venta ($)</th>
+                                            <th className="p-3 text-right">% Participación</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100 font-bold">
+                                        {resumenCierreDia.porItem.map((it, idx) => (
+                                            <tr key={it.id} className="hover:bg-slate-50/70 transition-colors">
+                                                <td className="p-3 text-slate-400 font-extrabold">{idx + 1}</td>
+                                                <td className="p-3">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-lg">{it.emoji}</span>
+                                                        <div>
+                                                            <p className="text-slate-800 font-black">{it.nombreCorto || it.nombre}</p>
+                                                            <span className="text-[10px] text-slate-400 font-semibold">{it.codigo} • {it.peso}</span>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                                <td className="p-3 text-center text-slate-600">
+                                                    <span className="px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 font-black text-[11px]">
+                                                        ${it.pvd.toFixed(2)}
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 text-center">
+                                                    <span className={`px-3 py-1 rounded-full text-xs font-black ${it.unidadesVendidas > 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-400'}`}>
+                                                        {it.unidadesVendidas.toLocaleString()} u.
+                                                    </span>
+                                                </td>
+                                                <td className="p-3 text-right text-sm font-black text-emerald-800">
+                                                    ${it.montoVendido.toFixed(2)}
+                                                </td>
+                                                <td className="p-3 text-right">
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <span className="text-slate-600 text-[11px] font-extrabold">{it.porcentajeTotal}%</span>
+                                                        <div className="w-16 bg-slate-100 rounded-full h-1.5 overflow-hidden">
+                                                            <div className="bg-emerald-500 h-1.5 rounded-full" style={{ width: `${Math.min(100, parseFloat(it.porcentajeTotal))}%` }}></div>
+                                                        </div>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr className="bg-slate-100/80 border-t-2 border-slate-300 font-black text-slate-900 text-xs">
+                                            <td colSpan="3" className="p-3 uppercase">Total Consolidado del Día</td>
+                                            <td className="p-3 text-center text-emerald-800 font-black text-sm">
+                                                {resumenCierreDia.totalUnidades.toLocaleString()} u.
+                                            </td>
+                                            <td className="p-3 text-right text-emerald-800 font-black text-base">
+                                                ${resumenCierreDia.totalVentasMonto.toFixed(2)}
+                                            </td>
+                                            <td className="p-3 text-right text-slate-500">100%</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* ═══ CONSOLIDADO TOTAL POR CADA CLIENTE ═══ */}
+                        <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-md space-y-3">
+                            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-2 border-b border-slate-100">
+                                <div className="flex items-center gap-2">
+                                    <Icon name="users" size={18} className="text-[#075E54]"/>
+                                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
+                                        Total de Ventas por Cada Cliente
+                                    </h3>
+                                </div>
+                                <span className="text-xs text-slate-500 font-bold">
+                                    {resumenCierreDia.porCliente.length} clientes distintos atendidos
+                                </span>
+                            </div>
+
+                            {resumenCierreDia.porCliente.length === 0 ? (
+                                <div className="text-center py-10 text-slate-400">
+                                    <Icon name="receipt" size={36} className="mx-auto mb-2 opacity-40"/>
+                                    <p className="font-bold text-sm">No hay ventas registradas para la fecha seleccionada ({filtroFechaVentas})</p>
+                                    <p className="text-xs text-slate-400 mt-1">Registra tu primera venta en la pestaña "Nueva Nota".</p>
+                                </div>
+                            ) : (
+                                <div className="space-y-3">
+                                    {/* Tabla de ventas individuales del día */}
+                                    <div className="overflow-x-auto">
+                                        <table className="w-full text-left text-xs">
+                                            <thead>
+                                                <tr className="bg-slate-50 border-b border-slate-200 text-[11px] font-black uppercase text-slate-500">
+                                                    <th className="p-3">Nota</th>
+                                                    <th className="p-3">Hora</th>
+                                                    <th className="p-3">Cliente</th>
+                                                    <th className="p-3">Teléfono / Dirección</th>
+                                                    <th className="p-3">Items Comprados</th>
+                                                    <th className="p-3 text-right">Total Venta</th>
+                                                    <th className="p-3 text-center">Acciones</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody className="divide-y divide-slate-100 font-bold">
+                                                {resumenCierreDia.ventas.map((v) => (
+                                                    <tr key={v.id} className="hover:bg-slate-50/80 transition-colors">
+                                                        <td className="p-3">
+                                                            <span className="font-black text-slate-800 bg-slate-100 px-2 py-0.5 rounded-lg border border-slate-200">
+                                                                {v.numeroNota || 'NV-0001'}
+                                                            </span>
+                                                        </td>
+                                                        <td className="p-3 text-slate-400 font-semibold">{v.hora || '-'}</td>
+                                                        <td className="p-3">
+                                                            <p className="text-slate-900 font-black">{v.cliente}</p>
+                                                            {v.detalle && (
+                                                                <span className="text-[10px] text-slate-400 font-medium block">
+                                                                    Obs: {v.detalle}
+                                                                </span>
+                                                            )}
+                                                        </td>
+                                                        <td className="p-3 text-slate-600">
+                                                            <span className="block text-[11px]">{v.telefono || 'Sin teléfono'}</span>
+                                                            {v.direccion && <span className="block text-[10px] text-slate-400">{v.direccion}</span>}
+                                                        </td>
+                                                        <td className="p-3">
+                                                            <div className="flex flex-wrap gap-1">
+                                                                {(v.items || []).map((it, i) => (
+                                                                    <span key={i} className="text-[10px] bg-slate-100 text-slate-700 px-1.5 py-0.5 rounded-md font-extrabold border border-slate-200/70">
+                                                                        {it.q}x {it.peso || it.nombreCorto} (${it.pvd})
+                                                                    </span>
+                                                                ))}
+                                                            </div>
+                                                        </td>
+                                                        <td className="p-3 text-right text-sm font-black text-emerald-800">
+                                                            ${Number(v.totalMonto).toFixed(2)}
+                                                        </td>
+                                                        <td className="p-3 text-center">
+                                                            <div className="flex items-center justify-center gap-1.5">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => descargarPdfNotaVenta(v)}
+                                                                    className="p-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg transition-all"
+                                                                    title="Descargar PDF de esta nota"
+                                                                >
+                                                                    <Icon name="download" size={14}/>
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => compartirNotaWhatsApp(v)}
+                                                                    className="p-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-lg transition-all"
+                                                                    title="Enviar por WhatsApp"
+                                                                >
+                                                                    <Icon name="share-2" size={14}/>
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => setModalTicketDetalle(v)}
+                                                                    className="p-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-all"
+                                                                    title="Ver Ticket detallado"
+                                                                >
+                                                                    <Icon name="eye" size={14}/>
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => eliminarVentaNota(v.id)}
+                                                                    className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-all"
+                                                                    title="Eliminar registro"
+                                                                >
+                                                                    <Icon name="trash-2" size={14}/>
+                                                                </button>
+                                                            </div>
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                    )}
+                </div>
                 )}
 
                 {/* ═══════════════════════════════════════════════════════
@@ -8674,6 +10097,176 @@
                             className="w-full sm:w-auto px-6 py-2.5 bg-slate-800 text-white font-bold rounded-xl text-xs uppercase tracking-wider hover:bg-slate-900 transition-all"
                         >
                             Entendido
+                        </button>
+                    </div>
+                </div>
+            </div>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════
+                MODAL: VENTA REGISTRADA CON ÉXITO
+            ═══════════════════════════════════════════════════════ */}
+            {modalVentaGuardada && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4">
+                <div className="bg-white rounded-3xl p-6 sm:p-7 max-w-md w-full shadow-2xl border border-slate-100 fade-in text-center space-y-4">
+                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-3xl flex items-center justify-center mx-auto shadow-inner border border-emerald-200">
+                        <Icon name="check-circle" size={36}/>
+                    </div>
+
+                    <div>
+                        <span className="bg-emerald-100 text-emerald-800 text-[10px] font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider">
+                            Comprobante Guardado
+                        </span>
+                        <h3 className="text-xl font-black text-slate-900 uppercase italic mt-1">
+                            ¡Venta Registrada con Éxito!
+                        </h3>
+                        <p className="text-xs text-slate-500 font-semibold mt-0.5">
+                            La nota fue guardada y agregada al cierre diario de ventas.
+                        </p>
+                    </div>
+
+                    {/* Resumen del ticket */}
+                    <div className="bg-slate-50 p-4 rounded-2xl border border-slate-200/80 text-left space-y-1.5 text-xs">
+                        <div className="flex justify-between items-center pb-1.5 border-b border-slate-200">
+                            <span className="text-slate-500 font-bold">No. Comprobante:</span>
+                            <span className="font-black text-slate-800 bg-white px-2 py-0.5 rounded-md border border-slate-200">
+                                {modalVentaGuardada.numeroNota}
+                            </span>
+                        </div>
+                        <div className="flex justify-between items-center">
+                            <span className="text-slate-500 font-bold">Cliente:</span>
+                            <span className="font-extrabold text-slate-900">{modalVentaGuardada.cliente}</span>
+                        </div>
+                        {modalVentaGuardada.telefono && (
+                            <div className="flex justify-between items-center">
+                                <span className="text-slate-500 font-bold">Teléfono:</span>
+                                <span className="font-semibold text-slate-700">{modalVentaGuardada.telefono}</span>
+                            </div>
+                        )}
+                        <div className="flex justify-between items-center">
+                            <span className="text-slate-500 font-bold">Unidades:</span>
+                            <span className="font-black text-emerald-800">{modalVentaGuardada.totalUnidades} u.</span>
+                        </div>
+                        <div className="flex justify-between items-center pt-1.5 border-t border-slate-200 text-sm">
+                            <span className="font-black text-slate-800">TOTAL PAGADO:</span>
+                            <span className="font-black text-emerald-700 text-base">
+                                ${Number(modalVentaGuardada.totalMonto).toFixed(2)}
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Botones de acción directos */}
+                    <div className="space-y-2 pt-1">
+                        <button
+                            type="button"
+                            onClick={() => descargarPdfNotaVenta(modalVentaGuardada)}
+                            className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-black rounded-xl text-xs uppercase tracking-wider shadow flex items-center justify-center gap-2 transition-all active:scale-95"
+                        >
+                            <Icon name="download" size={16}/>
+                            <span>Descargar PDF para el Cliente</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => compartirNotaWhatsApp(modalVentaGuardada)}
+                            className="w-full py-3 bg-[#25D366] hover:bg-[#20ba5a] text-[#075E54] font-black rounded-xl text-xs uppercase tracking-wider shadow flex items-center justify-center gap-2 transition-all active:scale-95"
+                        >
+                            <Icon name="share-2" size={16}/>
+                            <span>Enviar por WhatsApp al Cliente</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            onClick={() => setModalVentaGuardada(null)}
+                            className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-black rounded-xl text-xs uppercase transition-all"
+                        >
+                            Siguiente Venta / Cerrar
+                        </button>
+                    </div>
+                </div>
+            </div>
+            )}
+
+            {/* ═══════════════════════════════════════════════════════
+                MODAL: VER DETALLE DEL TICKET DE VENTA
+            ═══════════════════════════════════════════════════════ */}
+            {modalTicketDetalle && (
+            <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-[250] flex items-center justify-center p-4">
+                <div className="bg-white rounded-3xl p-6 max-w-md w-full shadow-2xl border border-slate-100 fade-in space-y-4">
+                    <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+                        <div className="flex items-center gap-2">
+                            <Icon name="receipt" size={20} className="text-[#075E54]"/>
+                            <div>
+                                <h3 className="font-black text-slate-900 text-sm uppercase">Detalle de Comprobante</h3>
+                                <p className="text-[10px] text-slate-400 font-bold">{modalTicketDetalle.numeroNota} • {modalTicketDetalle.fecha} {modalTicketDetalle.hora || ''}</p>
+                            </div>
+                        </div>
+                        <button onClick={() => setModalTicketDetalle(null)} className="p-1 rounded-lg text-slate-400 hover:text-slate-700">
+                            <Icon name="x" size={18}/>
+                        </button>
+                    </div>
+
+                    {/* Datos del Cliente */}
+                    <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/80 text-xs space-y-1">
+                        <p><strong className="text-slate-500">Cliente:</strong> <span className="font-black text-slate-900">{modalTicketDetalle.cliente}</span></p>
+                        {modalTicketDetalle.telefono && <p><strong className="text-slate-500">Teléfono:</strong> <span className="text-slate-700">{modalTicketDetalle.telefono}</span></p>}
+                        {modalTicketDetalle.direccion && <p><strong className="text-slate-500">Dirección:</strong> <span className="text-slate-700">{modalTicketDetalle.direccion}</span></p>}
+                        {modalTicketDetalle.detalle && <p><strong className="text-slate-500">Detalle:</strong> <span className="text-slate-700 italic">{modalTicketDetalle.detalle}</span></p>}
+                    </div>
+
+                    {/* Tabla de Items */}
+                    <div className="overflow-x-auto max-h-56">
+                        <table className="w-full text-left text-xs">
+                            <thead>
+                                <tr className="border-b border-slate-200 text-[10px] font-black uppercase text-slate-400">
+                                    <th className="py-1.5">Producto</th>
+                                    <th className="py-1.5 text-center">Cant.</th>
+                                    <th className="py-1.5 text-right">P. Unit.</th>
+                                    <th className="py-1.5 text-right">Subtotal</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 font-bold">
+                                {(modalTicketDetalle.items || []).map((it, idx) => (
+                                    <tr key={idx}>
+                                        <td className="py-2 text-slate-800">{it.nombreCorto || it.nombre}</td>
+                                        <td className="py-2 text-center text-slate-600 font-black">{it.q} u.</td>
+                                        <td className="py-2 text-right text-slate-600">${Number(it.pvd).toFixed(2)}</td>
+                                        <td className="py-2 text-right font-black text-slate-900">${(Number(it.subtotal) || (it.q * it.pvd)).toFixed(2)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+
+                    {/* Totales */}
+                    <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
+                        <span className="text-xs font-bold text-slate-500">Total {modalTicketDetalle.totalUnidades} u.</span>
+                        <span className="text-lg font-black text-emerald-700">${Number(modalTicketDetalle.totalMonto).toFixed(2)}</span>
+                    </div>
+
+                    <div className="flex gap-2 pt-2">
+                        <button
+                            type="button"
+                            onClick={() => descargarPdfNotaVenta(modalTicketDetalle)}
+                            className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-xl text-xs uppercase flex items-center justify-center gap-1.5 shadow"
+                        >
+                            <Icon name="download" size={14}/>
+                            <span>PDF</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => compartirNotaWhatsApp(modalTicketDetalle)}
+                            className="flex-1 py-2.5 bg-[#25D366] hover:bg-[#20ba5a] text-[#075E54] font-bold rounded-xl text-xs uppercase flex items-center justify-center gap-1.5 shadow"
+                        >
+                            <Icon name="share-2" size={14}/>
+                            <span>WhatsApp</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setModalTicketDetalle(null)}
+                            className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs uppercase"
+                        >
+                            Cerrar
                         </button>
                     </div>
                 </div>
