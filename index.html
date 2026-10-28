@@ -258,12 +258,12 @@
     }));
 
     // ── PRECIOS DE VENTA OFICIALES PARA NOTA DE VENTA ÁGIL ──
-    // Precios oficiales de venta: 0.42 de 160g/165g, 0.50 de 165g reducida, 0.84 de 340g, 1.05 de medio litro (500g) y 1.83 de 1000g (1 litro)
+    // Orden oficial: 1º 160g ($0.42), 2º 340g ($0.84), 3º 500g ($1.05), 4º Bajo en Azúcar ($0.50) y 5º 1000g ($1.83)
     const PRODUCTOS_VENTA_BASE = [
         { id:'p1', codigo:'P000000256',    nombre:'01 EMPACADO AVENA POLACA 165G', nombreCorto:'Avena Polaca 165g (160g)', peso:'165g', pvd:0.42, costoRef:0.269565, emoji:'🥛', colorBadge:'bg-emerald-100 text-emerald-800 border-emerald-300', gradiente:'from-emerald-600 to-teal-700' },
-        { id:'p5', codigo:'P000000256-BA', nombre:'02 EMPACADO AVENA POLACA 165G REDUCIDA EN AZÚCAR', nombreCorto:'165g Reducida en Azúcar', peso:'165g', pvd:0.50, costoRef:0.345043, emoji:'🌱', colorBadge:'bg-teal-100 text-teal-800 border-teal-300', gradiente:'from-teal-600 to-cyan-700' },
-        { id:'p2', codigo:'P000000247',    nombre:'03 EMPACADO AVENA POLACA 340G', nombreCorto:'Avena Polaca 340g', peso:'340g', pvd:0.84, costoRef:0.608694, emoji:'🥤', colorBadge:'bg-blue-100 text-blue-800 border-blue-300', gradiente:'from-blue-600 to-indigo-700' },
-        { id:'p3', codigo:'P000000005',    nombre:'04 EMPACADO AVENA POLACA 500G', nombreCorto:'Avena Polaca 500g (Medio Litro)', peso:'500g', pvd:1.05, costoRef:0.777042, emoji:'🍶', colorBadge:'bg-purple-100 text-purple-800 border-purple-300', gradiente:'from-indigo-600 to-purple-700' },
+        { id:'p2', codigo:'P000000247',    nombre:'02 EMPACADO AVENA POLACA 340G', nombreCorto:'Avena Polaca 340g', peso:'340g', pvd:0.84, costoRef:0.608694, emoji:'🥤', colorBadge:'bg-blue-100 text-blue-800 border-blue-300', gradiente:'from-blue-600 to-indigo-700' },
+        { id:'p3', codigo:'P000000005',    nombre:'03 EMPACADO AVENA POLACA 500G', nombreCorto:'Avena Polaca 500g (Medio Litro)', peso:'500g', pvd:1.05, costoRef:0.777042, emoji:'🍶', colorBadge:'bg-purple-100 text-purple-800 border-purple-300', gradiente:'from-indigo-600 to-purple-700' },
+        { id:'p5', codigo:'P000000256-BA', nombre:'04 EMPACADO AVENA POLACA 165G BAJO EN AZÚCAR', nombreCorto:'165g Bajo en Azúcar', peso:'165g', pvd:0.50, costoRef:0.345043, emoji:'🌱', colorBadge:'bg-teal-100 text-teal-800 border-teal-300', gradiente:'from-teal-600 to-cyan-700' },
         { id:'p4', codigo:'P000000006',    nombre:'05 EMPACADO AVENA POLACA 1000G', nombreCorto:'Avena Polaca 1000g (1 Litro)', peso:'1000g', pvd:1.83, costoRef:1.597390, emoji:'🧃', colorBadge:'bg-amber-100 text-amber-800 border-amber-300', gradiente:'from-amber-600 to-orange-700' },
     ];
 
@@ -591,6 +591,8 @@
             detalleMantenimiento: '',
             nombreHotel: '',
             costoDetalladoHotel: '',
+            detalleAccesorio: '',
+            detalleOtros: '',
             monto: '',
             concepto: '',
             notas: '',
@@ -2151,6 +2153,8 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                 detalleMantenimiento: '',
                 nombreHotel: '',
                 costoDetalladoHotel: '',
+                detalleAccesorio: '',
+                detalleOtros: '',
                 monto: '',
                 concepto: '',
                 notas: '',
@@ -2174,6 +2178,8 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                 detalleMantenimiento: gasto.detalleMantenimiento || '',
                 nombreHotel: gasto.nombreHotel || '',
                 costoDetalladoHotel: gasto.costoDetalladoHotel || '',
+                detalleAccesorio: gasto.detalleAccesorio || '',
+                detalleOtros: gasto.detalleOtros || '',
                 monto: gasto.monto ? gasto.monto.toString() : '',
                 concepto: gasto.concepto || '',
                 notas: gasto.notas || '',
@@ -2632,7 +2638,8 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                 combustible:  docsGasto.filter(g => g.categoria === 'combustible').reduce((a, g) => a + (parseFloat(g.monto)||0), 0),
                 mantenimiento:docsGasto.filter(g => g.categoria === 'mantenimiento').reduce((a, g) => a + (parseFloat(g.monto)||0), 0),
                 hospedaje:    docsGasto.filter(g => g.categoria === 'hospedaje').reduce((a, g) => a + (parseFloat(g.monto)||0), 0),
-                otros:        docsGasto.filter(g => g.categoria === 'otros' || !g.categoria).reduce((a, g) => a + (parseFloat(g.monto)||0), 0),
+                accesorios:   docsGasto.filter(g => g.categoria === 'accesorios').reduce((a, g) => a + (parseFloat(g.monto)||0), 0),
+                otros:        docsGasto.filter(g => g.categoria === 'otros' || (!['alimentacion','combustible','mantenimiento','hospedaje','accesorios'].includes(g.categoria))).reduce((a, g) => a + (parseFloat(g.monto)||0), 0),
             };
         }, [docsGasto]);
 
@@ -2869,6 +2876,12 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
             } else if (formDocGasto.categoria === 'hospedaje') {
                 montoFinal = parseFloat(formDocGasto.monto);
                 if (!conceptoFinal) conceptoFinal = `Hospedaje: ${formDocGasto.nombreHotel || 'Hotel'}`;
+            } else if (formDocGasto.categoria === 'accesorios') {
+                montoFinal = parseFloat(formDocGasto.monto);
+                if (!conceptoFinal) conceptoFinal = formDocGasto.detalleAccesorio ? `Accesorios: ${formDocGasto.detalleAccesorio}` : 'Accesorios y Suministros';
+            } else if (formDocGasto.categoria === 'otros') {
+                montoFinal = parseFloat(formDocGasto.monto);
+                if (!conceptoFinal) conceptoFinal = formDocGasto.detalleOtros ? `Otros: ${formDocGasto.detalleOtros}` : 'Otros Gastos';
             } else {
                 montoFinal = parseFloat(formDocGasto.monto);
                 if (!conceptoFinal) conceptoFinal = 'Gasto Operativo';
@@ -2891,6 +2904,8 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                         detalleMantenimiento: formDocGasto.categoria === 'mantenimiento' ? formDocGasto.detalleMantenimiento : null,
                         nombreHotel: formDocGasto.categoria === 'hospedaje' ? formDocGasto.nombreHotel : null,
                         costoDetalladoHotel: formDocGasto.categoria === 'hospedaje' ? formDocGasto.costoDetalladoHotel : null,
+                        detalleAccesorio: formDocGasto.categoria === 'accesorios' ? formDocGasto.detalleAccesorio : null,
+                        detalleOtros: formDocGasto.categoria === 'otros' ? formDocGasto.detalleOtros : null,
                         concepto: conceptoFinal,
                         monto: montoFinal,
                         notas: formDocGasto.notas || '',
@@ -2911,6 +2926,8 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                         detalleMantenimiento: formDocGasto.categoria === 'mantenimiento' ? formDocGasto.detalleMantenimiento : null,
                         nombreHotel: formDocGasto.categoria === 'hospedaje' ? formDocGasto.nombreHotel : null,
                         costoDetalladoHotel: formDocGasto.categoria === 'hospedaje' ? formDocGasto.costoDetalladoHotel : null,
+                        detalleAccesorio: formDocGasto.categoria === 'accesorios' ? formDocGasto.detalleAccesorio : null,
+                        detalleOtros: formDocGasto.categoria === 'otros' ? formDocGasto.detalleOtros : null,
                         concepto: conceptoFinal,
                         monto: montoFinal,
                         notas: formDocGasto.notas || '',
@@ -2932,6 +2949,8 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                     detalleMantenimiento: '',
                     nombreHotel: '',
                     costoDetalladoHotel: '',
+                    detalleAccesorio: '',
+                    detalleOtros: '',
                     monto: '',
                     concepto: '',
                     notas: '',
@@ -6831,7 +6850,7 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                             <h2 className="text-lg md:text-xl font-black text-slate-800 uppercase tracking-tight italic">
                                 Facturas & Comprobantes de Gastos
                             </h2>
-                            <p className="text-[11px] text-slate-500">Alimentación, combustible variable, mantenimiento y hospedaje</p>
+                            <p className="text-[11px] text-slate-500">Alimentación, combustible variable, mantenimiento, hospedaje, accesorios y otros</p>
                         </div>
                         <button
                             onClick={abrirNuevoGasto}
@@ -6842,13 +6861,52 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                         </button>
                     </div>
 
+                    {/* Barra de Filtro por Categoría con badges de conteo */}
+                    <div className="flex flex-wrap items-center gap-1.5 bg-white p-2.5 rounded-2xl border border-slate-200">
+                        <span className="text-[10px] font-black uppercase text-slate-400 mr-1">Filtrar:</span>
+                        {[
+                            { id: 'todos', label: 'Todos', count: docsGasto.length },
+                            { id: 'alimentacion', label: 'Alimentación', count: docsGasto.filter(g=>g.categoria==='alimentacion').length },
+                            { id: 'combustible', label: 'Combustible', count: docsGasto.filter(g=>g.categoria==='combustible').length },
+                            { id: 'mantenimiento', label: 'Mantenimiento', count: docsGasto.filter(g=>g.categoria==='mantenimiento').length },
+                            { id: 'hospedaje', label: 'Hospedaje', count: docsGasto.filter(g=>g.categoria==='hospedaje').length },
+                            { id: 'accesorios', label: 'Accesorios', count: docsGasto.filter(g=>g.categoria==='accesorios').length },
+                            { id: 'otros', label: 'Otros', count: docsGasto.filter(g=>g.categoria==='otros' || (!['alimentacion','combustible','mantenimiento','hospedaje','accesorios'].includes(g.categoria))).length },
+                        ].map(cat => (
+                            <button
+                                key={cat.id}
+                                type="button"
+                                onClick={() => setFiltroGastoCat(cat.id)}
+                                className={`px-2.5 py-1 rounded-xl text-xs font-black transition-all flex items-center gap-1.5 ${
+                                    filtroGastoCat === cat.id
+                                        ? 'bg-orange-600 text-white shadow-sm'
+                                        : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                                }`}
+                            >
+                                <span>{cat.label}</span>
+                                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${filtroGastoCat === cat.id ? 'bg-white/30 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                                    {cat.count}
+                                </span>
+                            </button>
+                        ))}
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         {gastosFiltrados.map(g => (
                             <div key={g.id} className="bg-white rounded-2xl border border-slate-200 card-shadow p-4 space-y-2">
                                 <div className="flex justify-between items-start">
                                     <div>
-                                        <span className="text-[9px] font-black uppercase bg-orange-100 text-orange-800 px-2 py-0.5 rounded">
-                                            {g.categoria}
+                                        <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded ${
+                                            g.categoria === 'alimentacion' ? 'bg-amber-100 text-amber-800' :
+                                            g.categoria === 'combustible' ? 'bg-orange-100 text-orange-800' :
+                                            g.categoria === 'mantenimiento' ? 'bg-purple-100 text-purple-800' :
+                                            g.categoria === 'hospedaje' ? 'bg-blue-100 text-blue-800' :
+                                            g.categoria === 'accesorios' ? 'bg-emerald-100 text-emerald-800' :
+                                            'bg-slate-100 text-slate-800'
+                                        }`}>
+                                            {g.categoria === 'accesorios' ? '📦 Accesorios' :
+                                             g.categoria === 'otros' ? '📁 Otros' :
+                                             g.categoria}
                                         </span>
                                         <h4 className="font-black text-slate-800 text-sm uppercase italic mt-1">{g.concepto}</h4>
                                         <span className="text-[10px] text-slate-400">{g.fecha}</span>
@@ -6857,6 +6915,8 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                                 </div>
                                 {g.detalleMantenimiento && <p className="text-xs text-purple-900 bg-purple-50 p-2 rounded-lg">Mantenimiento: {g.detalleMantenimiento}</p>}
                                 {g.nombreHotel && <p className="text-xs text-blue-900 bg-blue-50 p-2 rounded-lg">Hotel: {g.nombreHotel} ({g.costoDetalladoHotel})</p>}
+                                {g.detalleAccesorio && <p className="text-xs text-emerald-900 bg-emerald-50 p-2 rounded-lg font-medium">Accesorio: {g.detalleAccesorio}</p>}
+                                {g.detalleOtros && <p className="text-xs text-slate-800 bg-slate-100 p-2 rounded-lg font-medium">Detalle: {g.detalleOtros}</p>}
                                 <div className="flex justify-between items-center pt-2 border-t">
                                     <div className="flex items-center gap-2">
                                         <button onClick={() => eliminarRegistro('docsGasto', g.id)} className="text-slate-400 hover:text-red-500 text-xs font-bold">Eliminar</button>
@@ -8963,7 +9023,7 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
 
                         <div>
                             <label className="text-[9px] font-black text-slate-500 uppercase block mb-1.5">Categoría</label>
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2">
                                 <button
                                     type="button"
                                     onClick={() => setFormDocGasto({...formDocGasto, categoria: 'alimentacion'})}
@@ -8995,6 +9055,22 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                                 >
                                     <Icon name="bed" size={18}/>
                                     <span>Hospedaje</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormDocGasto({...formDocGasto, categoria: 'accesorios'})}
+                                    className={`p-2.5 rounded-xl border text-left font-black text-xs flex flex-col gap-1 transition-all ${formDocGasto.categoria === 'accesorios' ? 'bg-emerald-600 text-white border-emerald-700 shadow-md' : 'bg-slate-50 text-slate-700 border-slate-200'}`}
+                                >
+                                    <Icon name="package" size={18}/>
+                                    <span>Accesorios</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormDocGasto({...formDocGasto, categoria: 'otros'})}
+                                    className={`p-2.5 rounded-xl border text-left font-black text-xs flex flex-col gap-1 transition-all ${formDocGasto.categoria === 'otros' ? 'bg-slate-700 text-white border-slate-800 shadow-md' : 'bg-slate-50 text-slate-700 border-slate-200'}`}
+                                >
+                                    <Icon name="more-horizontal" size={18}/>
+                                    <span>Otros</span>
                                 </button>
                             </div>
                         </div>
@@ -9129,6 +9205,58 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                                         type="number"
                                         step="0.01"
                                         className="w-full p-2.5 bg-white rounded-xl font-black text-base border border-blue-300 outline-none text-blue-900"
+                                        value={formDocGasto.monto}
+                                        onChange={e => setFormDocGasto({...formDocGasto, monto: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {formDocGasto.categoria === 'accesorios' && (
+                            <div className="bg-emerald-50/80 p-3 rounded-2xl border border-emerald-200 space-y-3">
+                                <div>
+                                    <label className="text-[9px] font-black text-emerald-900 uppercase block mb-1">Detalle del Accesorio / Suministro</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Ej: Candado, correas de amarre, cinta de embalaje, chaleco reflectivo, herramientas..."
+                                        className="w-full p-2.5 bg-white rounded-xl font-bold text-xs border border-emerald-200 outline-none text-slate-800"
+                                        value={formDocGasto.detalleAccesorio}
+                                        onChange={e => setFormDocGasto({...formDocGasto, detalleAccesorio: e.target.value})}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[9px] font-black text-emerald-900 uppercase block mb-1">Monto ($)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder="0.00"
+                                        className="w-full p-2.5 bg-white rounded-xl font-black text-base border border-emerald-300 outline-none text-emerald-900"
+                                        value={formDocGasto.monto}
+                                        onChange={e => setFormDocGasto({...formDocGasto, monto: e.target.value})}
+                                    />
+                                </div>
+                            </div>
+                        )}
+
+                        {formDocGasto.categoria === 'otros' && (
+                            <div className="bg-slate-50/80 p-3 rounded-2xl border border-slate-300 space-y-3">
+                                <div>
+                                    <label className="text-[9px] font-black text-slate-800 uppercase block mb-1">Detalle del Gasto</label>
+                                    <input
+                                        type="text"
+                                        placeholder="Ej: Peajes imprevistos, parqueadero, papelería, recarga saldo, trámites..."
+                                        className="w-full p-2.5 bg-white rounded-xl font-bold text-xs border border-slate-300 outline-none text-slate-800"
+                                        value={formDocGasto.detalleOtros}
+                                        onChange={e => setFormDocGasto({...formDocGasto, detalleOtros: e.target.value})}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[9px] font-black text-slate-800 uppercase block mb-1">Monto ($)</label>
+                                    <input
+                                        type="number"
+                                        step="0.01"
+                                        placeholder="0.00"
+                                        className="w-full p-2.5 bg-white rounded-xl font-black text-base border border-slate-400 outline-none text-slate-900"
                                         value={formDocGasto.monto}
                                         onChange={e => setFormDocGasto({...formDocGasto, monto: e.target.value})}
                                     />
