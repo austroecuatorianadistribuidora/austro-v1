@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>AustroPolaca Control ✨ | Bodega, 5 Rutas, Devoluciones y Ganancias</title>
+    <title>Andrés Cárdenas | Distribuidor de Avena Polaca</title>
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-    <meta name="apple-mobile-web-app-title" content="AustroPolaca Control">
+    <meta name="apple-mobile-web-app-title" content="Andrés Cárdenas">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="theme-color" content="#075E54">
-    <meta name="application-name" content="AustroPolaca Control">
+    <meta name="application-name" content="Andrés Cárdenas">
     <meta name="msapplication-TileColor" content="#075E54">
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
@@ -396,6 +396,7 @@
         const [busquedaVentas, setBusquedaVentas] = useState('');
         const [modalVentaGuardada, setModalVentaGuardada] = useState(null);
         const [modalTicketDetalle, setModalTicketDetalle] = useState(null);
+        const [editandoVentaId, setEditandoVentaId]       = useState(null); // ID de venta siendo editada
 
         const [formNota, setFormNota] = useState({
             fecha: today,
@@ -714,6 +715,7 @@
         };
 
         const limpiarFormNota = () => {
+            setEditandoVentaId(null);
             setFormNota({
                 fecha: today,
                 numeroNota: `NV-${String((ventasNotas.length || 0) + 1).padStart(4, '0')}`,
@@ -732,6 +734,45 @@
                     q: 0
                 }))
             });
+        };
+
+        // Iniciar edición de una nota de venta existente
+        const editarVentaNota = (v) => {
+            if (!v) return;
+            const targetId = v.id || v.firestoreId || v.localId;
+            setEditandoVentaId(targetId);
+            setFormNota({
+                fecha: v.fecha || today,
+                numeroNota: v.numeroNota || '',
+                cliente: v.cliente || '',
+                detalle: v.detalle || '',
+                direccion: v.direccion || '',
+                telefono: v.telefono || '',
+                items: PRODUCTOS_VENTA_BASE.map(p => {
+                    const itemVenta = (v.items || []).find(it => it.id === p.id || it.codigo === p.codigo);
+                    return {
+                        id: p.id,
+                        codigo: p.codigo,
+                        nombre: p.nombre,
+                        nombreCorto: p.nombreCorto,
+                        peso: p.peso,
+                        pvdDefault: p.pvd,
+                        pvd: itemVenta ? (parseFloat(itemVenta.pvd) || p.pvd) : p.pvd,
+                        q: itemVenta ? (parseInt(itemVenta.q) || 0) : 0
+                    };
+                })
+            });
+            setSubTabVenta('nueva');
+            setActiveTab('notaVenta');
+            if (modalTicketDetalle) setModalTicketDetalle(null);
+            mostrarAviso(`✏️ Editando Nota: ${v.numeroNota || v.cliente}`);
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        };
+
+        const cancelarEdicionNota = () => {
+            setEditandoVentaId(null);
+            limpiarFormNota();
+            mostrarAviso("Edición cancelada");
         };
 
         const seleccionarClienteSugerido = (c) => {
@@ -760,7 +801,7 @@
             };
         }, [formNota.items]);
 
-        // Guardar Nota de Venta
+        // Guardar o Actualizar Nota de Venta
         const guardarVentaNota = async () => {
             const itemsValidos = (formNota.items || []).filter(it => (parseInt(it.q) || 0) > 0);
             if (itemsValidos.length === 0) {
@@ -774,8 +815,90 @@
             const totalUnidades = itemsValidos.reduce((a, b) => a + (parseInt(b.q) || 0), 0);
             const totalMonto = itemsValidos.reduce((a, b) => a + ((parseInt(b.q) || 0) * (parseFloat(b.pvd) || 0)), 0);
 
-            const nuevaVenta = {
-                id: 'vn_' + Date.now(),
+            const itemsProcesados = itemsValidos.map(it => {
+                const q = parseInt(it.q) || 0;
+                const pvd = parseFloat(it.pvd) || 0;
+                return {
+                    id: it.id,
+                    codigo: it.codigo,
+                    nombre: it.nombre,
+                    nombreCorto: it.nombreCorto,
+                    peso: it.peso,
+                    pvd,
+                    pvdDefault: it.pvdDefault,
+                    q,
+                    subtotal: parseFloat((q * pvd).toFixed(2))
+                };
+            });
+
+            if (editandoVentaId) {
+                // ── MODO EDICIÓN / ACTUALIZACIÓN ──
+                const ventaActualizada = {
+                    id: editandoVentaId,
+                    firestoreId: editandoVentaId,
+                    localId: editandoVentaId,
+                    numeroNota: numNota,
+                    fecha: formNota.fecha || today,
+                    hora: horaActual,
+                    updatedAt: new Date().toISOString(),
+                    cliente: clienteFinal,
+                    detalle: formNota.detalle || '',
+                    direccion: formNota.direccion || '',
+                    telefono: formNota.telefono || '',
+                    totalUnidades,
+                    totalMonto: parseFloat(totalMonto.toFixed(2)),
+                    items: itemsProcesados
+                };
+
+                // Actualizar en estado local y localStorage
+                setVentasNotas(prev => {
+                    const actualizadas = prev.map(v => (v.id === editandoVentaId || v.firestoreId === editandoVentaId || v.localId === editandoVentaId) ? { ...v, ...ventaActualizada } : v);
+                    try {
+                        localStorage.setItem('austropolaca_ventas_notas_v1', JSON.stringify(actualizadas));
+                    } catch(e) {}
+                    return actualizadas;
+                });
+
+                // Actualizar en Firestore
+                try {
+                    if (window.appDb && window.appId && window.FB) {
+                        const col = n => FB.collection(window.appDb, 'artifacts', window.appId, 'public', 'data', n);
+                        try {
+                            const ventaRef = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'ventasNotas', editandoVentaId);
+                            await FB.updateDoc(ventaRef, {
+                                ...ventaActualizada,
+                                updatedAt: new Date().toISOString()
+                            });
+                        } catch(errDirect) {
+                            // Si el docId en Firestore no coincidía exactamente, buscarlo por atributos
+                            const snap = await FB.getDocs(col('ventasNotas'));
+                            for (const d of snap.docs) {
+                                if (d.id === editandoVentaId || d.data().id === editandoVentaId) {
+                                    await FB.updateDoc(FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'ventasNotas', d.id), {
+                                        ...ventaActualizada,
+                                        updatedAt: new Date().toISOString()
+                                    });
+                                }
+                            }
+                        }
+                    }
+                } catch(e) {
+                    console.warn("Offline sync update warning:", e);
+                }
+
+                setEditandoVentaId(null);
+                limpiarFormNota();
+                mostrarAviso(`✓ Nota de venta ${numNota} actualizada con éxito`);
+                setModalVentaGuardada(ventaActualizada);
+                return;
+            }
+
+            // ── MODO NUEVA VENTA ──
+            const localId = 'vn_' + Date.now();
+            let ventaFinal = {
+                id: localId,
+                localId: localId,
+                firestoreId: localId,
                 numeroNota: numNota,
                 fecha: formNota.fecha || today,
                 hora: horaActual,
@@ -786,52 +909,90 @@
                 telefono: formNota.telefono || '',
                 totalUnidades,
                 totalMonto: parseFloat(totalMonto.toFixed(2)),
-                items: itemsValidos.map(it => {
-                    const q = parseInt(it.q) || 0;
-                    const pvd = parseFloat(it.pvd) || 0;
-                    return {
-                        id: it.id,
-                        codigo: it.codigo,
-                        nombre: it.nombre,
-                        nombreCorto: it.nombreCorto,
-                        peso: it.peso,
-                        pvd,
-                        pvdDefault: it.pvdDefault,
-                        q,
-                        subtotal: parseFloat((q * pvd).toFixed(2))
-                    };
-                })
+                items: itemsProcesados
             };
 
-            setVentasNotas(prev => [nuevaVenta, ...prev]);
-            mostrarAviso(`✓ Venta guardada: ${clienteFinal} ($${nuevaVenta.totalMonto.toFixed(2)})`);
-
-            // Sincronizar en Firestore si está disponible
+            // Sincronizar en Firestore
             try {
                 if (window.appDb && window.appId && window.FB) {
                     const col = n => FB.collection(window.appDb, 'artifacts', window.appId, 'public', 'data', n);
-                    await FB.addDoc(col('ventasNotas'), { ...nuevaVenta, createdAt: new Date().toISOString() });
+                    const docRef = await FB.addDoc(col('ventasNotas'), { ...ventaFinal, createdAt: new Date().toISOString() });
+                    if (docRef && docRef.id) {
+                        ventaFinal.id = docRef.id;
+                        ventaFinal.firestoreId = docRef.id;
+                    }
                 }
             } catch(e) {
                 console.warn("Offline Firestore sync fallback");
             }
 
-            // Mostrar modal de confirmación con opciones de PDF y WhatsApp
-            setModalVentaGuardada(nuevaVenta);
+            setVentasNotas(prev => [ventaFinal, ...prev.filter(v => v.id !== ventaFinal.id)]);
+            try {
+                localStorage.setItem('austropolaca_ventas_notas_v1', JSON.stringify([ventaFinal, ...ventasNotas]));
+            } catch(e) {}
 
-            // Preparar siguiente nota limpia
+            mostrarAviso(`✓ Venta guardada: ${clienteFinal} ($${ventaFinal.totalMonto.toFixed(2)})`);
+            setModalVentaGuardada(ventaFinal);
             limpiarFormNota();
         };
 
-        const eliminarVentaNota = async (id) => {
-            if (!confirm("¿Seguro que deseas anular y eliminar este registro de venta?")) return;
-            setVentasNotas(prev => prev.filter(v => v.id !== id));
+        // Eliminar definitivamente una nota de venta tanto de memoria local como de Firestore
+        const eliminarVentaNota = async (ventaOId) => {
+            if (!confirm("¿Deseas anular y eliminar esta nota de venta de forma definitiva? No volverá a aparecer.")) return;
+            const venta = typeof ventaOId === 'object' ? ventaOId : ventasNotas.find(v => v.id === ventaOId || v.firestoreId === ventaOId || v.localId === ventaOId);
+            const idTarget = typeof ventaOId === 'string' ? ventaOId : (venta ? (venta.id || venta.firestoreId || venta.localId) : null);
+            if (!idTarget) return;
+
+            // 1. Quitar inmediatamente de estado local y de localStorage
+            setVentasNotas(prev => {
+                const filtradas = prev.filter(v => v.id !== idTarget && v.firestoreId !== idTarget && v.localId !== idTarget);
+                try {
+                    localStorage.setItem('austropolaca_ventas_notas_v1', JSON.stringify(filtradas));
+                } catch(e) {}
+                return filtradas;
+            });
+
+            if (modalTicketDetalle && (modalTicketDetalle.id === idTarget || modalTicketDetalle.firestoreId === idTarget)) {
+                setModalTicketDetalle(null);
+            }
+            if (editandoVentaId === idTarget) {
+                setEditandoVentaId(null);
+                limpiarFormNota();
+            }
+
+            // 2. Eliminar de Firestore definitivamente
             try {
                 if (window.appDb && window.appId && window.FB) {
-                    await FB.deleteDoc(FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'ventasNotas', id));
+                    const col = n => FB.collection(window.appDb, 'artifacts', window.appId, 'public', 'data', n);
+
+                    // Borrado directo si el docId coincide
+                    try {
+                        await FB.deleteDoc(FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'ventasNotas', idTarget));
+                    } catch(e) {}
+
+                    if (venta && venta.firestoreId && venta.firestoreId !== idTarget) {
+                        try {
+                            await FB.deleteDoc(FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'ventasNotas', venta.firestoreId));
+                        } catch(e) {}
+                    }
+
+                    // Eliminar cualquier duplicado o documento que coincida por id o atributos en Firestore
+                    const snap = await FB.getDocs(col('ventasNotas'));
+                    for (const d of snap.docs) {
+                        const data = d.data();
+                        const coincideId = d.id === idTarget || (venta && d.id === venta.firestoreId);
+                        const coincideLocal = data.id && (data.id === idTarget || (venta && (data.id === venta.localId || data.id === venta.id)));
+                        const coincideAtributos = venta && data.numeroNota && data.numeroNota === venta.numeroNota && data.fecha === venta.fecha && data.cliente === venta.cliente && Math.abs((data.totalMonto || 0) - (venta.totalMonto || 0)) < 0.01;
+                        if (coincideId || coincideLocal || coincideAtributos) {
+                            await FB.deleteDoc(FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'ventasNotas', d.id));
+                        }
+                    }
                 }
-            } catch(e) {}
-            mostrarAviso("Registro de venta eliminado");
+            } catch(e) {
+                console.error("Error al borrar definitivamente en Firestore:", e);
+            }
+
+            mostrarAviso("✓ Nota de venta eliminada definitivamente");
         };
 
         // Resumen y Cierre del Día (Totales por cada item y cada cliente)
@@ -931,12 +1092,12 @@
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(14);
                 doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
-                doc.text("AUSTROPOLACA CONTROL", 10, 15);
+                doc.text("ANDRÉS CÁRDENAS", 10, 15);
 
                 doc.setFontSize(7.5);
                 doc.setFont('helvetica', 'bold');
                 doc.setTextColor(cTeal[0], cTeal[1], cTeal[2]);
-                doc.text("DISTRIBUCIÓN Y VENTA OFICIAL DE AVENA POLACA", 10, 19.5);
+                doc.text("DISTRIBUIDOR DE AVENA POLACA", 10, 19.5);
 
                 doc.setFont('helvetica', 'normal');
                 doc.setFontSize(6.5);
@@ -1061,11 +1222,9 @@
 
                 // Pie de página de agradecimiento
                 doc.setFont('helvetica', 'italic');
-                doc.setFontSize(7.5);
+                doc.setFontSize(8);
                 doc.setTextColor(100, 116, 139);
-                doc.text("¡Muchas gracias por su preferencia!", 10, finalY + 9);
-                doc.setFontSize(6.5);
-                doc.text("Garantía de Frescura & Calidad Avena Polaca", 10, finalY + 14);
+                doc.text("¡Muchas gracias por su preferencia!", 10, finalY + 11);
 
                 const safeCliente = (venta.cliente || 'Cliente').replace(/[^a-zA-Z0-9]/g, '_');
                 const safeNum = (venta.numeroNota || 'NV').replace(/[^a-zA-Z0-9_-]/g, '');
@@ -1092,12 +1251,17 @@
                 doc.setFont('helvetica', 'bold');
                 doc.setFontSize(16);
                 doc.setTextColor(cVerdeOscuro[0], cVerdeOscuro[1], cVerdeOscuro[2]);
-                doc.text("AUSTROPOLACA CONTROL - CIERRE DIARIO DE VENTAS", 14, 20);
+                doc.text("ANDRÉS CÁRDENAS - CIERRE DIARIO DE VENTAS", 14, 18);
 
-                doc.setFontSize(10);
-                doc.setFont('helvetica', 'normal');
+                doc.setFontSize(9.5);
+                doc.setFont('helvetica', 'bold');
                 doc.setTextColor(cTeal[0], cTeal[1], cTeal[2]);
-                doc.text(`Fecha: ${cierre.fecha} • Clientes Atendidos: ${cierre.totalClientes} • Unidades Vendidas: ${cierre.totalUnidades} u. • Total: $${cierre.totalVentasMonto.toFixed(2)}`, 14, 27);
+                doc.text("DISTRIBUIDOR DE AVENA POLACA", 14, 23.5);
+
+                doc.setFontSize(9);
+                doc.setFont('helvetica', 'normal');
+                doc.setTextColor(cGrisTexto ? cGrisTexto[0] : 71, cGrisTexto ? cGrisTexto[1] : 85, cGrisTexto ? cGrisTexto[2] : 105);
+                doc.text(`Fecha: ${cierre.fecha} • Clientes Atendidos: ${cierre.totalClientes} • Unidades Vendidas: ${cierre.totalUnidades} u. • Total: $${cierre.totalVentasMonto.toFixed(2)}`, 14, 29);
 
                 // Tabla consolidada por ITEM
                 const itemRows = cierre.porItem.map((it, idx) => [
@@ -1226,7 +1390,8 @@
                 return `• ${cant}x ${nom} ($${pUnit.toFixed(2)}) = *$${sub.toFixed(2)}*`;
             }).join('\n');
 
-            const msg = `🧾 *NOTA DE VENTA - AUSTROPOLACA*
+            const msg = `🧾 *NOTA DE VENTA - ANDRÉS CÁRDENAS*
+🏢 *Distribuidor de Avena Polaca*
 📋 *No:* ${venta.numeroNota || 'NV-0001'}
 📅 *Fecha:* ${venta.fecha || today} ${venta.hora ? '• ' + venta.hora : ''}
 👤 *Cliente:* ${venta.cliente || 'Consumidor Final'}
@@ -1238,7 +1403,7 @@ ${itemsTexto}
 💰 *TOTAL A PAGAR: $${(Number(venta.totalMonto) || 0).toFixed(2)}*
 ----------------------------------------
 ¡Muchas gracias por su preferencia! ✨
-_AustroPolaca Control - Garantía de Calidad y Frescura_`;
+_Andrés Cárdenas - Distribuidor de Avena Polaca_`;
 
             const encoded = encodeURIComponent(msg);
             const url = telNum ? `https://wa.me/${telNum}?text=${encoded}` : `https://wa.me/?text=${encoded}`;
@@ -1498,10 +1663,22 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                         }
                     }, () => {});
                     FB.onSnapshot(col('ventasNotas'), s => {
-                        if (!s.empty) {
-                            setVentasNotas(s.docs.map(d=>({id:d.id, ...d.data()})));
-                        }
-                    }, () => {});
+                        const lista = s.docs.map(d => {
+                            const data = d.data();
+                            return {
+                                ...data,
+                                id: d.id,
+                                firestoreId: d.id,
+                                localId: data.id || d.id
+                            };
+                        });
+                        setVentasNotas(lista);
+                        try {
+                            localStorage.setItem('austropolaca_ventas_notas_v1', JSON.stringify(lista));
+                        } catch(e) {}
+                    }, (err) => {
+                        console.warn("Firestore listener warning ventasNotas:", err);
+                    });
                 } catch(e) {
                     console.error("Firebase init error:", e);
                     setError("Fallo al conectar con la base de datos.");
@@ -3756,10 +3933,10 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                         <img src="image.jpg" alt="AustroPolaca" className="h-full w-full object-contain" />
                     </div>
                     <div>
-                        <h1 className="font-black text-base sm:text-lg tracking-tight italic uppercase flex items-center gap-1.5 leading-none text-white">
-                            AustroPolaca <span className="bg-[#25D366] text-[#075E54] text-[9px] font-black px-2 py-0.5 rounded-full not-italic tracking-wider shadow-sm">CONTROL</span>
+                        <h1 className="font-black text-base sm:text-lg tracking-tight uppercase flex items-center gap-1.5 leading-none text-white">
+                            Andrés Cárdenas
                         </h1>
-                        <p className="text-[10px] text-emerald-100/80 font-semibold mt-0.5">Control de Bodega, 5 Rutas, Devoluciones & Ganancias</p>
+                        <p className="text-[10px] text-emerald-100/90 font-bold mt-0.5 tracking-wide">Distribuidor de Avena Polaca</p>
                     </div>
                 </div>
 
@@ -3828,8 +4005,8 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                                 <img src="image.jpg" alt="AustroPolaca" className="h-full w-full object-contain" />
                             </div>
                             <div>
-                                <span className="italic uppercase font-black text-[#075E54] text-base tracking-tight block leading-tight">AustroPolaca</span>
-                                <span className="text-[9px] text-emerald-700 font-black uppercase tracking-widest block">CONTROL</span>
+                                <span className="uppercase font-black text-[#075E54] text-sm tracking-tight block leading-tight">Andrés Cárdenas</span>
+                                <span className="text-[9px] text-emerald-700 font-bold uppercase tracking-wider block">Distribuidor de Avena Polaca</span>
                             </div>
                         </div>
                         <button
@@ -3892,8 +4069,8 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                         <img src="image.jpg" alt="AustroPolaca" className="h-full w-full object-contain" />
                     </div>
                     <div>
-                        <span className="italic uppercase font-black text-[#075E54] text-lg tracking-tight block leading-tight">AustroPolaca</span>
-                        <span className="text-[9px] text-emerald-700 font-black uppercase tracking-widest block">CONTROL</span>
+                        <span className="uppercase font-black text-[#075E54] text-base tracking-tight block leading-tight">Andrés Cárdenas</span>
+                        <span className="text-[9px] text-emerald-700 font-bold uppercase tracking-wider block">Distribuidor de Avena Polaca</span>
                     </div>
                 </div>
 
@@ -4032,6 +4209,27 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                     {/* VISTA 1: FORMULARIO ÁGIL DE NUEVA NOTA DE VENTA */}
                     {subTabVenta === 'nueva' && (
                     <div className="space-y-5">
+                        {editandoVentaId && (
+                            <div className="bg-gradient-to-r from-amber-500 to-amber-600 text-white p-4 rounded-3xl shadow-md flex items-center justify-between gap-3 animate-fade-in">
+                                <div className="flex items-center gap-2.5">
+                                    <div className="w-9 h-9 rounded-2xl bg-white/20 flex items-center justify-center font-black">
+                                        <Icon name="edit" size={18}/>
+                                    </div>
+                                    <div>
+                                        <p className="font-black text-sm uppercase tracking-wide">Modo Edición de Nota de Venta</p>
+                                        <p className="text-xs text-amber-100 font-medium">Modificando nota <strong>{formNota.numeroNota}</strong> de {formNota.cliente || 'Consumidor Final'}</p>
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={cancelarEdicionNota}
+                                    className="px-3.5 py-1.5 bg-white text-amber-900 hover:bg-amber-50 font-black rounded-xl text-xs uppercase tracking-wider transition-all shadow-sm flex items-center gap-1.5"
+                                >
+                                    <Icon name="x" size={13}/>
+                                    <span>Cancelar</span>
+                                </button>
+                            </div>
+                        )}
                         {/* DATOS DEL CLIENTE Y CABECERA DE LA NOTA */}
                         <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-md space-y-4">
                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 pb-3 border-b border-slate-100">
@@ -4370,12 +4568,21 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                                 <button
                                     type="button"
                                     onClick={guardarVentaNota}
-                                    className="flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-3 bg-[#25D366] hover:bg-[#20ba5a] text-[#075E54] font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95"
-                                    title="Guardar la venta y registrar en el cierre diario"
+                                    className={`flex-1 sm:flex-initial flex items-center justify-center gap-2 px-5 py-3 ${editandoVentaId ? 'bg-amber-500 hover:bg-amber-600 text-white' : 'bg-[#25D366] hover:bg-[#20ba5a] text-[#075E54]'} font-black rounded-2xl text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95`}
+                                    title={editandoVentaId ? 'Actualizar nota de venta guardada' : 'Guardar la venta y registrar en el cierre diario'}
                                 >
-                                    <Icon name="check-circle" size={17}/>
-                                    <span>Guardar Venta</span>
+                                    <Icon name={editandoVentaId ? "save" : "check-circle"} size={17}/>
+                                    <span>{editandoVentaId ? 'Actualizar Nota' : 'Guardar Venta'}</span>
                                 </button>
+                                {editandoVentaId && (
+                                    <button
+                                        type="button"
+                                        onClick={cancelarEdicionNota}
+                                        className="px-4 py-3 bg-slate-700 hover:bg-slate-600 text-white font-bold rounded-2xl text-xs uppercase tracking-wider transition-all"
+                                    >
+                                        Cancelar
+                                    </button>
+                                )}
 
                                 <button
                                     type="button"
@@ -4719,9 +4926,17 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                                                                 </button>
                                                                 <button
                                                                     type="button"
-                                                                    onClick={() => eliminarVentaNota(v.id)}
+                                                                    onClick={() => editarVentaNota(v)}
+                                                                    className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg transition-all"
+                                                                    title="Editar nota de venta"
+                                                                >
+                                                                    <Icon name="edit" size={14}/>
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => eliminarVentaNota(v)}
                                                                     className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-all"
-                                                                    title="Eliminar registro"
+                                                                    title="Eliminar registro definitivamente"
                                                                 >
                                                                     <Icon name="trash-2" size={14}/>
                                                                 </button>
@@ -4754,7 +4969,7 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                             <div>
                                 <div className="flex items-center gap-2">
                                     <h2 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight italic uppercase">
-                                        AustroPolaca <span className="bg-[#25D366] text-[#075E54] text-xs font-black px-2.5 py-0.5 rounded-full not-italic shadow-sm">CONTROL</span>
+                                        Andrés Cárdenas <span className="bg-[#25D366] text-[#075E54] text-xs font-black px-2.5 py-0.5 rounded-full not-italic shadow-sm">CONTROL</span>
                                     </h2>
                                     <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10px] font-black px-2.5 py-1 rounded-full border border-emerald-200">
                                         <span className="w-2 h-2 rounded-full bg-[#25D366] live-glow"></span>
@@ -4762,7 +4977,7 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                                     </span>
                                 </div>
                                 <p className="text-xs text-slate-500 font-semibold mt-0.5">
-                                    Panel Interactivo de Bodega, 5 Rutas, Devoluciones y Balance Financiero
+                                    Distribuidor de Avena Polaca • Panel Interactivo de Bodega, Rutas y Ventas
                                 </p>
                             </div>
                         </div>
@@ -9706,8 +9921,8 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                             {/* Cabecera Proveedor y Factura */}
                             <div className="flex flex-col sm:flex-row justify-between items-start gap-4 pb-4 border-b border-slate-200">
                                 <div>
-                                    <h2 className="text-xl font-black text-[#075E54] tracking-tight">AUSTROPOLACA CONTROL</h2>
-                                    <p className="text-[10px] font-bold text-[#128C7E] uppercase">Bodega Central & Distribución de Avena Polaca</p>
+                                    <h2 className="text-xl font-black text-[#075E54] tracking-tight">ANDRÉS CÁRDENAS</h2>
+                                    <p className="text-[10px] font-bold text-[#128C7E] uppercase">Distribuidor de Avena Polaca</p>
                                     <p className="text-[10px] text-slate-500 mt-1"><strong>Razón Social:</strong> {PROVEEDOR_UNICO.razonSocial}</p>
                                     <p className="text-[10px] text-slate-500"><strong>R.U.C.:</strong> {PROVEEDOR_UNICO.ruc} • Contribuyente Especial: {PROVEEDOR_UNICO.contribuyenteEspecial}</p>
                                     <p className="text-[10px] text-slate-500"><strong>Matriz:</strong> {PROVEEDOR_UNICO.direccion}</p>
@@ -10372,7 +10587,15 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                         <span className="text-lg font-black text-emerald-700">${Number(modalTicketDetalle.totalMonto).toFixed(2)}</span>
                     </div>
 
-                    <div className="flex gap-2 pt-2">
+                    <div className="flex flex-wrap gap-2 pt-2">
+                        <button
+                            type="button"
+                            onClick={() => editarVentaNota(modalTicketDetalle)}
+                            className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs uppercase flex items-center justify-center gap-1.5 shadow"
+                        >
+                            <Icon name="edit" size={14}/>
+                            <span>Editar</span>
+                        </button>
                         <button
                             type="button"
                             onClick={() => descargarPdfNotaVenta(modalTicketDetalle)}
@@ -10388,6 +10611,14 @@ _AustroPolaca Control - Garantía de Calidad y Frescura_`;
                         >
                             <Icon name="share-2" size={14}/>
                             <span>WhatsApp</span>
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => eliminarVentaNota(modalTicketDetalle)}
+                            className="px-3 py-2.5 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold rounded-xl text-xs uppercase flex items-center justify-center gap-1 shadow-sm"
+                            title="Eliminar nota definitivamente"
+                        >
+                            <Icon name="trash-2" size={14}/>
                         </button>
                         <button
                             type="button"
