@@ -242,9 +242,9 @@
 
     // ── LOS 3 ITEMS EXCLUSIVOS COMERCIALIZADOS DE AVENA POLACA (PRECIOS OFICIALES CON IVA INCLUIDO) ──
     const PRODUCTOS_POLACA = [
-        { id:'p1', codigo:'P000000256', nombre:'VASO AVENA POLACA 165G',           nombreCorto:'Vaso 165g',           peso:'165g',  costo:0.31, costoConIva:0.31, pvd:0.42, qRef: 4080, emoji:'🥛' },
-        { id:'p2', codigo:'P000000247', nombre:'VASO AVENA POLACA 340G',           nombreCorto:'Vaso 340g',           peso:'340g',  costo:0.70, costoConIva:0.70, pvd:0.84, qRef: 1740, emoji:'🥤' },
-        { id:'p3', codigo:'P000000005', nombre:'BOTELLA AVENA POLACA MEDIO LITRO', nombreCorto:'Botella Medio Litro', peso:'500ml', costo:0.89, costoConIva:0.89, pvd:1.04, qRef: 63,   emoji:'🍶' },
+        { id:'p1', codigo:'P000000256', nombre:'VASO AVENA POLACA 165G',           nombreCorto:'Vaso 165g',           peso:'165g',  costo:0.31, pvc:0.31, costoConIva:0.31, costoRef:0.31, pvd:0.42, qRef: 4080, emoji:'🥛' },
+        { id:'p2', codigo:'P000000247', nombre:'VASO AVENA POLACA 340G',           nombreCorto:'Vaso 340g',           peso:'340g',  costo:0.70, pvc:0.70, costoConIva:0.70, costoRef:0.70, pvd:0.84, qRef: 1740, emoji:'🥤' },
+        { id:'p3', codigo:'P000000005', nombre:'BOTELLA AVENA POLACA MEDIO LITRO', nombreCorto:'Botella Medio Litro', peso:'500ml', costo:0.89, pvc:0.89, costoConIva:0.89, costoRef:0.89, pvd:1.04, qRef: 63,   emoji:'🍶' },
     ];
 
     const PRODUCTOS = PRODUCTOS_POLACA;
@@ -258,10 +258,23 @@
     // ── PRECIOS DE VENTA OFICIALES PARA NOTA DE VENTA ÁGIL (SOLO 3 PRODUCTOS, IVA INCLUIDO) ──
     // 1º Vaso 165g (Compra $0.31 / Venta $0.42), 2º Vaso 340g (Compra $0.70 / Venta $0.84), 3º Botella Medio Litro (Compra $0.89 / Venta $1.04)
     const PRODUCTOS_VENTA_BASE = [
-        { id:'p1', codigo:'P000000256', nombre:'VASO AVENA POLACA 165G',           nombreCorto:'Vaso 165g',           peso:'165g',  pvd:0.42, costoRef:0.31, emoji:'🥛', colorBadge:'bg-emerald-100 text-emerald-800 border-emerald-300', gradiente:'from-emerald-600 to-teal-700' },
-        { id:'p2', codigo:'P000000247', nombre:'VASO AVENA POLACA 340G',           nombreCorto:'Vaso 340g',           peso:'340g',  pvd:0.84, costoRef:0.70, emoji:'🥤', colorBadge:'bg-blue-100 text-blue-800 border-blue-300', gradiente:'from-blue-600 to-indigo-700' },
-        { id:'p3', codigo:'P000000005', nombre:'BOTELLA AVENA POLACA MEDIO LITRO', nombreCorto:'Botella Medio Litro', peso:'500ml', pvd:1.04, costoRef:0.89, emoji:'🍶', colorBadge:'bg-purple-100 text-purple-800 border-purple-300', gradiente:'from-indigo-600 to-purple-700' },
+        { id:'p1', codigo:'P000000256', nombre:'VASO AVENA POLACA 165G',           nombreCorto:'Vaso 165g',           peso:'165g',  pvd:0.42, costo:0.31, pvc:0.31, costoRef:0.31, emoji:'🥛', colorBadge:'bg-emerald-100 text-emerald-800 border-emerald-300', gradiente:'from-emerald-600 to-teal-700' },
+        { id:'p2', codigo:'P000000247', nombre:'VASO AVENA POLACA 340G',           nombreCorto:'Vaso 340g',           peso:'340g',  pvd:0.84, costo:0.70, pvc:0.70, costoRef:0.70, emoji:'🥤', colorBadge:'bg-blue-100 text-blue-800 border-blue-300', gradiente:'from-blue-600 to-indigo-700' },
+        { id:'p3', codigo:'P000000005', nombre:'BOTELLA AVENA POLACA MEDIO LITRO', nombreCorto:'Botella Medio Litro', peso:'500ml', pvd:1.04, costo:0.89, pvc:0.89, costoRef:0.89, emoji:'🍶', colorBadge:'bg-purple-100 text-purple-800 border-purple-300', gradiente:'from-indigo-600 to-purple-700' },
     ];
+
+    // Normalizador universal de cualquier ítem de factura/despacho/nota a los 3 productos oficiales (p1, p2, p3)
+    const normalizarIdProducto = (it) => {
+        if (!it) return null;
+        if (it.id === 'p1' || it.id === 'p5' || it.codigo === 'P000000256' || it.codigo === 'P000000254') return 'p1';
+        if (it.id === 'p2' || it.codigo === 'P000000247') return 'p2';
+        if (it.id === 'p3' || it.codigo === 'P000000005') return 'p3';
+        const nom = String(it.nombre || it.nombreCorto || it.peso || '').toLowerCase();
+        if (nom.includes('165')) return 'p1';
+        if (nom.includes('340')) return 'p2';
+        if (nom.includes('medio litro') || nom.includes('500') || nom.includes('botella') || nom.includes('1/2')) return 'p3';
+        return null;
+    };
 
     const VENDEDORES = ["Andrés Cárdenas", "Diego Xavier Siavichay", "Vendedor Asignado"];
 
@@ -274,26 +287,27 @@
 
     // ── CRONOGRAMA OFICIAL DE RUTAS SEMANALES ──
     const RUTAS_OFICIALES = [
-        { id: 'canar1',          dia: 'Lunes',            nombre: 'Lunes - Cañar 1',            zona: 'Lunes: Cañar 1',                badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',       barColor: 'border-l-blue-600' },
-        { id: 'canar2',          dia: 'Martes',           nombre: 'Martes - Cañar 2',           zona: 'Martes: Cañar 2',               badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-200', barColor: 'border-l-indigo-600' },
-        { id: 'oriente1',        dia: 'Miércoles',        nombre: 'Miércoles - Oriente 1',      zona: 'Miércoles: Oriente 1',          badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200', barColor: 'border-l-emerald-600' },
-        { id: 'oriente2',        dia: 'Jueves',           nombre: 'Jueves - Oriente 2',         zona: 'Jueves: Oriente 2',             badgeColor: 'bg-teal-100 text-teal-800 border-teal-200',       barColor: 'border-l-teal-600' },
-        { id: 'libre',           dia: 'Viernes y Sábado', nombre: 'Viernes y Sábado - Libre',   zona: 'Viernes y Sábado: Días Libres', badgeColor: 'bg-slate-100 text-slate-700 border-slate-300',    barColor: 'border-l-slate-400' },
-        { id: 'giron_yunguilla', dia: 'Domingo',          nombre: 'Domingo - Girón Yunguilla',  zona: 'Domingo: Girón Yunguilla',      badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',    barColor: 'border-l-amber-600' }
+        { id: 'canar1',          dia: 'Lunes',            diaSemana: 'Lunes',            nombre: 'Cañar 1',          zona: 'Lunes: Cañar 1',                badgeColor: 'bg-blue-100 text-blue-800 border-blue-200',       barColor: 'border-l-blue-600' },
+        { id: 'canar2',          dia: 'Martes',           diaSemana: 'Martes',           nombre: 'Cañar 2',          zona: 'Martes: Cañar 2',               badgeColor: 'bg-indigo-100 text-indigo-800 border-indigo-200', barColor: 'border-l-indigo-600' },
+        { id: 'oriente1',        dia: 'Miércoles',        diaSemana: 'Miércoles',        nombre: 'Oriente 1',        zona: 'Miércoles: Oriente 1',          badgeColor: 'bg-emerald-100 text-emerald-800 border-emerald-200', barColor: 'border-l-emerald-600' },
+        { id: 'oriente2',        dia: 'Jueves',           diaSemana: 'Jueves',           nombre: 'Oriente 2',        zona: 'Jueves: Oriente 2',             badgeColor: 'bg-teal-100 text-teal-800 border-teal-200',       barColor: 'border-l-teal-600' },
+        { id: 'libre',           dia: 'Viernes y Sábado', diaSemana: 'Viernes y Sábado', nombre: 'Libre',            zona: 'Viernes y Sábado: Días Libres', badgeColor: 'bg-slate-100 text-slate-700 border-slate-300',    barColor: 'border-l-slate-400' },
+        { id: 'giron_yunguilla', dia: 'Domingo',          diaSemana: 'Domingo',          nombre: 'Girón Yunguilla',  zona: 'Domingo: Girón Yunguilla',      badgeColor: 'bg-amber-100 text-amber-800 border-amber-200',    barColor: 'border-l-amber-600' }
     ];
 
     const obtenerRutaPorFecha = (fechaIso) => {
         try {
             const d = fechaIso ? new Date(fechaIso + 'T12:00:00') : new Date();
             const day = d.getDay(); // 0=Dom, 1=Lun, 2=Mar, 3=Mié, 4=Jue, 5=Vie, 6=Sáb
-            if (day === 1) return 'canar1';
-            if (day === 2) return 'canar2';
-            if (day === 3) return 'oriente1';
-            if (day === 4) return 'oriente2';
-            if (day === 0) return 'giron_yunguilla';
-            return 'libre';
+            let routeId = 'libre';
+            if (day === 1) routeId = 'canar1';
+            else if (day === 2) routeId = 'canar2';
+            else if (day === 3) routeId = 'oriente1';
+            else if (day === 4) routeId = 'oriente2';
+            else if (day === 0) routeId = 'giron_yunguilla';
+            return RUTAS_OFICIALES.find(r => r.id === routeId) || RUTAS_OFICIALES[0];
         } catch(e) {
-            return 'canar1';
+            return RUTAS_OFICIALES[0];
         }
     };
 
@@ -435,6 +449,9 @@
         const [formCargaDiaria, setFormCargaDiaria] = useState({
             fecha: today,
             ruta: obtenerRutaPorFecha(today).id,
+            p1: 0,
+            p2: 0,
+            p3: 0,
             items: PRODUCTOS_POLACA.map(p => ({
                 id: p.id,
                 codigo: p.codigo,
@@ -442,6 +459,7 @@
                 nombreCorto: p.nombreCorto,
                 peso: p.peso,
                 costo: p.costo,
+                pvc: p.costo,
                 pvd: p.pvd,
                 q: 0
             }))
@@ -977,35 +995,58 @@
 
         // Funciones ágiles para Carga Diaria de los 3 productos
         const cambiarCantidadCargaDiaria = (id, delta) => {
-            setFormCargaDiaria(prev => ({
-                ...prev,
-                items: prev.items.map(it => it.id === id ? { ...it, q: Math.max(0, (parseInt(it.q) || 0) + delta) } : it)
-            }));
+            setFormCargaDiaria(prev => {
+                const currentQ = parseInt(prev[id] ?? (prev.items.find(it => it.id === id)?.q || 0)) || 0;
+                const nextQ = Math.max(0, currentQ + delta);
+                return {
+                    ...prev,
+                    [id]: nextQ,
+                    items: prev.items.map(it => it.id === id ? { ...it, q: nextQ } : it)
+                };
+            });
         };
 
         const fijarCantidadCargaDiaria = (id, val) => {
             const q = Math.max(0, parseInt(val) || 0);
             setFormCargaDiaria(prev => ({
                 ...prev,
+                [id]: q,
                 items: prev.items.map(it => it.id === id ? { ...it, q } : it)
             }));
         };
 
         const guardarCargaDiariaAgil = async (fechaOverride) => {
             if (isSaving) return;
-            const fechaCarga = fechaOverride || formCargaDiaria.fecha || today;
+            const fechaCarga = (typeof fechaOverride === 'string' && fechaOverride) ? fechaOverride : (formCargaDiaria.fecha || today);
             const rutaAuto = obtenerRutaPorFecha(fechaCarga);
             const rutaIdFinal = formCargaDiaria.ruta || rutaAuto.id;
             const rutaInfo = RUTAS_OFICIALES.find(r => r.id === rutaIdFinal) || rutaAuto;
 
-            const totalUnidades = formCargaDiaria.items.reduce((a, b) => a + (parseInt(b.q) || 0), 0);
+            const itemsNormalizados = PRODUCTOS_POLACA.map(p => {
+                const qFromProp = parseInt(formCargaDiaria[p.id]) || 0;
+                const qFromItem = parseInt(formCargaDiaria.items?.find(i => i.id === p.id)?.q) || 0;
+                const q = Math.max(qFromProp, qFromItem);
+                return {
+                    id: p.id,
+                    codigo: p.codigo,
+                    nombre: p.nombre,
+                    nombreCorto: p.nombreCorto,
+                    peso: p.peso,
+                    costo: p.costo,
+                    pvc: p.costo,
+                    pvd: p.pvd,
+                    q
+                };
+            });
+
+            const totalUnidades = itemsNormalizados.reduce((a, b) => a + (parseInt(b.q) || 0), 0);
             if (totalUnidades <= 0) {
                 setError("Ingresa al menos 1 unidad en cualquiera de los 3 productos para registrar la carga diaria.");
                 return;
             }
 
-            const totalCosto = formCargaDiaria.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * (b.costo || 0)), 0);
-            const totalVenta = formCargaDiaria.items.reduce((a, b) => a + ((parseInt(b.q) || 0) * (b.pvd || 0)), 0);
+            const totalCosto = itemsNormalizados.reduce((a, b) => a + ((parseInt(b.q) || 0) * (b.costo || 0)), 0);
+            const totalVenta = itemsNormalizados.reduce((a, b) => a + ((parseInt(b.q) || 0) * (b.pvd || 0)), 0);
 
             const nuevaCargaObj = {
                 id: 'carga_' + Date.now(),
@@ -1018,15 +1059,7 @@
                 totalUnidades,
                 totalCargado: parseFloat(totalVenta.toFixed(2)),
                 totalCosto: parseFloat(totalCosto.toFixed(2)),
-                items: formCargaDiaria.items.map(it => ({
-                    id: it.id,
-                    codigo: it.codigo,
-                    nombre: it.nombre,
-                    nombreCorto: it.nombreCorto,
-                    q: parseInt(it.q) || 0,
-                    costo: it.costo,
-                    pvd: it.pvd
-                })),
+                items: itemsNormalizados,
                 estado: 'activa',
                 sinUtilidad: false,
                 requiereSeguimiento: false,
@@ -1043,6 +1076,9 @@
                 }
                 setFormCargaDiaria(prev => ({
                     ...prev,
+                    p1: 0,
+                    p2: 0,
+                    p3: 0,
                     items: PRODUCTOS_POLACA.map(p => ({
                         id: p.id,
                         codigo: p.codigo,
@@ -1050,6 +1086,7 @@
                         nombreCorto: p.nombreCorto,
                         peso: p.peso,
                         costo: p.costo,
+                        pvc: p.costo,
                         pvd: p.pvd,
                         q: 0
                     }))
@@ -1116,12 +1153,141 @@
             mostrarAviso("✓ Nota de venta eliminada definitivamente");
         };
 
+        // ── LIQUIDACIÓN AUTOMÁTICA DE FACTURAS HASTA HOY COMO "CONSUMIDOR FINAL" ──
+        // Todo el producto ingresado en facturas de compra (docsCompra) hasta hoy está 100% vendido.
+        // Lo que no tiene Nota de Venta manual ni Devolución hasta hoy se asigna automáticamente a "Consumidor Final"
+        // para efectos de Caja, Ganancias, Cierre Diario, Bodega y Balance Mensual.
+        const liquidacionFacturasConsumidorFinal = useMemo(() => {
+            const unidadesFacturadas = { p1: 0, p2: 0, p3: 0 };
+            const unidadesConNota = { p1: 0, p2: 0, p3: 0 };
+            const unidadesDevueltas = { p1: 0, p2: 0, p3: 0 };
+
+            // 1. Sumar todas las unidades ingresadas en Facturas de Compra (docsCompra) hasta hoy (excluyendo Local 3 Puentes sin utilidad)
+            (docsCompra || []).forEach(doc => {
+                const fDoc = doc.fecha || today;
+                if (fDoc > today) return;
+                if (doc.destino === '3puentes') return;
+                (doc.items || []).forEach(it => {
+                    const pid = normalizarIdProducto(it);
+                    if (!pid) return;
+                    const qTotal = parseInt(it.q) || 0;
+                    const q3P = doc.destino === 'mixto' ? (parseInt(doc.q3Puentes?.[it.id] || doc.q3Puentes?.[pid] || 0) || 0) : 0;
+                    const qComercial = Math.max(0, qTotal - q3P);
+                    unidadesFacturadas[pid] += qComercial;
+                });
+            });
+
+            // 2. Sumar unidades que ya tienen Nota de Venta manual hasta hoy
+            (ventasNotas || []).forEach(v => {
+                if (v.esConsumidorFinalAuto) return;
+                const fVenta = v.fecha || today;
+                if (fVenta > today) return;
+                (v.items || []).forEach(it => {
+                    const pid = normalizarIdProducto(it);
+                    if (pid) {
+                        unidadesConNota[pid] += (parseInt(it.q) || 0);
+                    }
+                });
+            });
+
+            // 3. Sumar unidades devueltas por clientes hasta hoy
+            (docsDevolucion || []).forEach(d => {
+                const fDev = d.fecha || today;
+                if (fDev > today) return;
+                (d.items || []).forEach(it => {
+                    const pid = normalizarIdProducto(it);
+                    if (pid) {
+                        unidadesDevueltas[pid] += (parseInt(it.q) || 0);
+                    }
+                });
+            });
+
+            // 4. Unidades restantes vendidas como "Consumidor Final" hasta hoy
+            const unidadesConsumidorFinal = {
+                p1: Math.max(0, unidadesFacturadas.p1 - unidadesConNota.p1 - unidadesDevueltas.p1),
+                p2: Math.max(0, unidadesFacturadas.p2 - unidadesConNota.p2 - unidadesDevueltas.p2),
+                p3: Math.max(0, unidadesFacturadas.p3 - unidadesConNota.p3 - unidadesDevueltas.p3)
+            };
+
+            const itemsCF = PRODUCTOS_POLACA.map(p => {
+                const q = unidadesConsumidorFinal[p.id] || 0;
+                const subtotal = parseFloat((q * p.pvd).toFixed(2));
+                const subtotalCosto = parseFloat((q * p.costo).toFixed(2));
+                const utilidad = parseFloat((subtotal - subtotalCosto).toFixed(2));
+                return {
+                    id: p.id,
+                    codigo: p.codigo,
+                    nombre: p.nombre,
+                    nombreCorto: p.nombreCorto,
+                    peso: p.peso,
+                    costo: p.costo,
+                    pvc: p.costo,
+                    pvd: p.pvd,
+                    pvdDefault: p.pvd,
+                    q,
+                    subtotal,
+                    subtotalCosto,
+                    utilidad
+                };
+            }).filter(it => it.q > 0);
+
+            const totalUnidadesCF = itemsCF.reduce((a, b) => a + b.q, 0);
+            const totalMontoCF = parseFloat(itemsCF.reduce((a, b) => a + b.subtotal, 0).toFixed(2));
+            const totalCostoCF = parseFloat(itemsCF.reduce((a, b) => a + b.subtotalCosto, 0).toFixed(2));
+            const utilidadBrutaCF = parseFloat((totalMontoCF - totalCostoCF).toFixed(2));
+
+            const notaConsumidorFinalAuto = totalUnidadesCF > 0 ? {
+                id: 'cf_auto_facturas_hoy',
+                localId: 'cf_auto_facturas_hoy',
+                firestoreId: 'cf_auto_facturas_hoy',
+                esConsumidorFinalAuto: true,
+                numeroNota: 'CF-FACTURAS',
+                fecha: today,
+                hora: 'Cierre Total Facturas',
+                cliente: 'Consumidor Final',
+                ciudad: 'Liquidación Total Facturas hasta Hoy',
+                direccion: 'Liquidación Total Facturas hasta Hoy',
+                detalle: 'Saldo de facturas ingresadas hasta hoy contabilizado 100% vendido como Consumidor Final',
+                telefono: '',
+                totalUnidades: totalUnidadesCF,
+                totalMonto: totalMontoCF,
+                totalCosto: totalCostoCF,
+                utilidadBruta: utilidadBrutaCF,
+                items: itemsCF
+            } : null;
+
+            return {
+                unidadesFacturadas,
+                unidadesConNota,
+                unidadesDevueltas,
+                unidadesConsumidorFinal,
+                totalUnidadesFacturadas: unidadesFacturadas.p1 + unidadesFacturadas.p2 + unidadesFacturadas.p3,
+                totalUnidadesConNota: unidadesConNota.p1 + unidadesConNota.p2 + unidadesConNota.p3,
+                totalUnidadesDevueltas: unidadesDevueltas.p1 + unidadesDevueltas.p2 + unidadesDevueltas.p3,
+                totalUnidadesCF,
+                totalMontoCF,
+                totalCostoCF,
+                utilidadBrutaCF,
+                notaConsumidorFinalAuto
+            };
+        }, [docsCompra, ventasNotas, docsDevolucion, today]);
+
+        // Lista unificada de Notas de Venta (Notas manuales + Nota automática de Consumidor Final por saldo de facturas hasta hoy)
+        const ventasNotasEfectivas = useMemo(() => {
+            const manuales = (ventasNotas || []).filter(v => !v.esConsumidorFinalAuto);
+            if (liquidacionFacturasConsumidorFinal.notaConsumidorFinalAuto) {
+                return [liquidacionFacturasConsumidorFinal.notaConsumidorFinalAuto, ...manuales];
+            }
+            return manuales;
+        }, [ventasNotas, liquidacionFacturasConsumidorFinal]);
+
         // ── MOTOR CRONOLÓGICO DE CARGA DIARIA, ARRASTRE AUTOMÁTICO DE SOBRANTE Y CIERRE DIARIO ──
         const controlDiarioPorFecha = useMemo(() => {
             const fechasSet = new Set([today]);
             if (filtroFechaVentas && filtroFechaVentas !== 'todas') fechasSet.add(filtroFechaVentas);
+            (docsCompra || []).forEach(doc => { if (doc.fecha && doc.destino !== '3puentes') fechasSet.add(doc.fecha); });
             (cargas || []).forEach(c => { if (c.fecha && c.rutaId !== 'local3puentes' && !c.sinUtilidad) fechasSet.add(c.fecha); });
-            (ventasNotas || []).forEach(v => { if (v.fecha) fechasSet.add(v.fecha); });
+            (ventasNotasEfectivas || []).forEach(v => { if (v.fecha) fechasSet.add(v.fecha); });
             (docsDevolucion || []).forEach(d => { if (d.fecha) fechasSet.add(d.fecha); });
             (docsGasto || []).forEach(g => { if (g.fecha) fechasSet.add(g.fecha); });
 
@@ -1131,28 +1297,48 @@
 
             fechasOrdenadas.forEach(f => {
                 const sobranteAnterior = { ...sobranteAcumulado };
+                const cargaFacturasDia = { p1: 0, p2: 0, p3: 0 };
+                const cargaManualDia = { p1: 0, p2: 0, p3: 0 };
                 const cargaNueva = { p1: 0, p2: 0, p3: 0 };
                 const vendidoNotas = { p1: 0, p2: 0, p3: 0 };
                 const montoVendidoNotas = { p1: 0, p2: 0, p3: 0 };
                 const devueltoClientes = { p1: 0, p2: 0, p3: 0 };
 
-                // 1. Sumar cargas nuevas del día f
-                (cargas || []).filter(c => c.fecha === f && c.rutaId !== 'local3puentes' && !c.sinUtilidad).forEach(c => {
-                    (c.items || []).forEach(it => {
-                        if (cargaNueva[it.id] !== undefined) {
-                            cargaNueva[it.id] += (parseInt(it.q) || 0);
+                // 1A. Sumar facturas de compra ingresadas en la fecha f
+                (docsCompra || []).filter(doc => (doc.fecha || today) === f && doc.destino !== '3puentes').forEach(doc => {
+                    (doc.items || []).forEach(it => {
+                        const pid = normalizarIdProducto(it);
+                        if (pid && cargaFacturasDia[pid] !== undefined) {
+                            const qTotal = parseInt(it.q) || 0;
+                            const q3P = doc.destino === 'mixto' ? (parseInt(doc.q3Puentes?.[it.id] || doc.q3Puentes?.[pid] || 0) || 0) : 0;
+                            cargaFacturasDia[pid] += Math.max(0, qTotal - q3P);
                         }
                     });
                 });
 
-                // 2. Sumar ventas de Notas de Venta del día f
-                (ventasNotas || []).filter(v => v.fecha === f).forEach(v => {
+                // 1B. Sumar cargas manuales registradas en la fecha f
+                (cargas || []).filter(c => c.fecha === f && c.rutaId !== 'local3puentes' && !c.sinUtilidad).forEach(c => {
+                    (c.items || []).forEach(it => {
+                        const pid = normalizarIdProducto(it);
+                        if (pid && cargaManualDia[pid] !== undefined) {
+                            cargaManualDia[pid] += (parseInt(it.q) || 0);
+                        }
+                    });
+                });
+
+                PRODUCTOS_POLACA.forEach(p => {
+                    cargaNueva[p.id] = (cargaFacturasDia[p.id] || 0) + (cargaManualDia[p.id] || 0);
+                });
+
+                // 2. Sumar ventas de Notas de Venta (incluyendo Consumidor Final en hoy) del día f
+                (ventasNotasEfectivas || []).filter(v => v.fecha === f).forEach(v => {
                     (v.items || []).forEach(it => {
-                        if (vendidoNotas[it.id] !== undefined) {
+                        const pid = normalizarIdProducto(it);
+                        if (pid && vendidoNotas[pid] !== undefined) {
                             const q = parseInt(it.q) || 0;
                             const p = parseFloat(it.pvd) || 0;
-                            vendidoNotas[it.id] += q;
-                            montoVendidoNotas[it.id] += (Number(it.subtotal) || (q * p));
+                            vendidoNotas[pid] += q;
+                            montoVendidoNotas[pid] += (Number(it.subtotal) || (q * p));
                         }
                     });
                 });
@@ -1160,8 +1346,9 @@
                 // 3. Sumar devoluciones de clientes del día f
                 (docsDevolucion || []).filter(d => d.fecha === f).forEach(d => {
                     (d.items || []).forEach(it => {
-                        if (devueltoClientes[it.id] !== undefined) {
-                            devueltoClientes[it.id] += (parseInt(it.q) || 0);
+                        const pid = normalizarIdProducto(it);
+                        if (pid && devueltoClientes[pid] !== undefined) {
+                            devueltoClientes[pid] += (parseInt(it.q) || 0);
                         }
                     });
                 });
@@ -1193,17 +1380,18 @@
             });
 
             return { mapaFechas, fechasOrdenadas };
-        }, [cargas, ventasNotas, docsDevolucion, docsGasto, filtroFechaVentas, today]);
+        }, [docsCompra, cargas, ventasNotasEfectivas, docsDevolucion, docsGasto, filtroFechaVentas, today]);
 
         // Resumen y Cierre Diario Completo
         const resumenCierreDia = useMemo(() => {
             const fechaFiltro = filtroFechaVentas || today;
             const esTodas = filtroFechaVentas === 'todas';
 
-            const ventasFiltradas = ventasNotas.filter(v => esTodas ? true : v.fecha === fechaFiltro);
+            const ventasFiltradas = ventasNotasEfectivas.filter(v => esTodas ? true : v.fecha === fechaFiltro);
             const gastosFiltradosDia = docsGasto.filter(g => esTodas ? true : g.fecha === fechaFiltro);
             const devolucionesFiltradasDia = docsDevolucion.filter(d => esTodas ? true : d.fecha === fechaFiltro);
             const cargasFiltradasDia = cargas.filter(c => (esTodas ? true : c.fecha === fechaFiltro) && c.rutaId !== 'local3puentes' && !c.sinUtilidad);
+            const comprasFiltradasDia = docsCompra.filter(doc => (esTodas ? true : (doc.fecha || today) === fechaFiltro) && doc.destino !== '3puentes');
 
             const infoControlDia = (!esTodas && controlDiarioPorFecha.mapaFechas[fechaFiltro])
                 ? controlDiarioPorFecha.mapaFechas[fechaFiltro]
@@ -1218,47 +1406,70 @@
                 let unidadesVendidas = 0;
                 let montoVendido = 0;
                 ventasFiltradas.forEach(v => {
-                    const it = (v.items || []).find(item => item.id === prod.id);
-                    if (it) {
-                        const q = parseInt(it.q) || 0;
-                        const p = parseFloat(it.pvd) || prod.pvd;
-                        unidadesVendidas += q;
-                        montoVendido += (Number(it.subtotal) || (q * p));
-                    }
+                    (v.items || []).forEach(it => {
+                        if (normalizarIdProducto(it) === prod.id) {
+                            const q = parseInt(it.q) || 0;
+                            const p = parseFloat(it.pvd) || prod.pvd;
+                            unidadesVendidas += q;
+                            montoVendido += (Number(it.subtotal) || (q * p));
+                        }
+                    });
                 });
 
                 let unidadesDevueltas = 0;
                 devolucionesFiltradasDia.forEach(d => {
-                    const it = (d.items || []).find(item => item.id === prod.id);
-                    if (it) unidadesDevueltas += (parseInt(it.q) || 0);
+                    (d.items || []).forEach(it => {
+                        if (normalizarIdProducto(it) === prod.id) {
+                            unidadesDevueltas += (parseInt(it.q) || 0);
+                        }
+                    });
                 });
 
                 const sobranteAnterior = infoControlDia ? (infoControlDia.sobranteAnterior[prod.id] || 0) : 0;
+                const cargaFacturas = comprasFiltradasDia.reduce((acc, doc) => {
+                    return acc + (doc.items || []).reduce((s, it) => {
+                        if (normalizarIdProducto(it) !== prod.id) return s;
+                        const qTotal = parseInt(it.q) || 0;
+                        const q3P = doc.destino === 'mixto' ? (parseInt(doc.q3Puentes?.[it.id] || doc.q3Puentes?.[prod.id] || 0) || 0) : 0;
+                        return s + Math.max(0, qTotal - q3P);
+                    }, 0);
+                }, 0);
+                const cargaManual = cargasFiltradasDia.reduce((acc, c) => {
+                    return acc + (c.items || []).reduce((s, i) => normalizarIdProducto(i) === prod.id ? s + (parseInt(i.q) || 0) : s, 0);
+                }, 0);
+
                 const cargaNueva = infoControlDia
                     ? (infoControlDia.cargaNueva[prod.id] || 0)
-                    : cargasFiltradasDia.reduce((acc, c) => acc + ((c.items || []).find(i => i.id === prod.id)?.q || 0), 0);
-                const cargaTotal = sobranteAnterior + cargaNueva;
-                const sobranteManana = Math.max(0, cargaTotal - unidadesVendidas - unidadesDevueltas);
+                    : (cargaFacturas + cargaManual);
+                const cargaTotal = Math.max(sobranteAnterior + cargaNueva, unidadesVendidas + unidadesDevueltas);
+                const sobranteManana = Math.max(0, (sobranteAnterior + cargaNueva) - unidadesVendidas - unidadesDevueltas);
 
-                const costoVendido = parseFloat((unidadesVendidas * prod.costo).toFixed(2));
+                const costoUnit = Number(prod.costo ?? prod.pvc ?? prod.costoRef ?? 0);
+                const costoVendido = parseFloat((unidadesVendidas * costoUnit).toFixed(2));
                 const utilidadBrutaItem = parseFloat((montoVendido - costoVendido).toFixed(2));
                 const montoDevuelto = parseFloat((unidadesDevueltas * prod.pvd).toFixed(2));
-                const costoDevuelto = parseFloat((unidadesDevueltas * prod.costo).toFixed(2));
+                const costoDevuelto = parseFloat((unidadesDevueltas * costoUnit).toFixed(2));
 
                 return {
                     ...prod,
+                    costo: costoUnit,
+                    pvc: costoUnit,
                     sobranteAnterior,
                     cargaNueva,
+                    cargaNuevaDia: cargaNueva,
                     cargaTotal,
+                    cargaTotalDisponible: cargaTotal,
                     montoCargaTotal: parseFloat((cargaTotal * prod.pvd).toFixed(2)),
                     unidadesVendidas,
                     montoVendido: parseFloat(montoVendido.toFixed(2)),
                     costoVendido,
                     utilidadBrutaItem,
+                    utilidadVenta: utilidadBrutaItem,
                     unidadesDevueltas,
                     montoDevuelto,
                     costoDevuelto,
                     sobranteManana,
+                    sobranteParaManana: sobranteManana,
                     montoSobranteManana: parseFloat((sobranteManana * prod.pvd).toFixed(2)),
                     porcentajeTotal: totalVentasMonto > 0 ? ((montoVendido / totalVentasMonto) * 100).toFixed(1) : '0.0'
                 };
@@ -1313,7 +1524,9 @@
                 rutaDelDia,
                 ventas: ventasFiltradas,
                 gastosDiaLista: gastosFiltradosDia,
+                gastosDelDia: gastosFiltradosDia,
                 devolucionesDiaLista: devolucionesFiltradasDia,
+                devolucionesDelDia: devolucionesFiltradasDia,
                 cargasDiaLista: cargasFiltradasDia,
                 totalSobranteAnteriorUnids,
                 totalCargaNuevaUnids,
@@ -1328,14 +1541,16 @@
                 totalGastosOperativosDia,
                 totalSobranteMananaUnids,
                 totalSobranteMananaMonto,
+                valorSobranteMananaVenta: totalSobranteMananaMonto,
                 utilidadTotalNetaDia,
                 efectivoNetoCierreDia,
                 totalClientes,
                 ticketPromedio: parseFloat(ticketPromedio.toFixed(2)),
                 porItem,
-                porCliente
+                porCliente,
+                liquidacionCF: liquidacionFacturasConsumidorFinal
             };
-        }, [ventasNotas, docsGasto, docsDevolucion, cargas, controlDiarioPorFecha, filtroFechaVentas, today]);
+        }, [ventasNotasEfectivas, docsGasto, docsDevolucion, cargas, docsCompra, controlDiarioPorFecha, filtroFechaVentas, today, liquidacionFacturasConsumidorFinal]);
 
         // Descargar PDF oficial de Nota de Venta para compartir al cliente
         const descargarPdfNotaVenta = (venta) => {
@@ -2675,31 +2890,44 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
         };
 
         // ── CONTROL DE BODEGA: STOCK EN TIEMPO REAL CON FACTURAS Y BAJAS POR DEVOLUCIÓN (100% PÉRDIDA) ──
+        // Todas las unidades facturadas hasta hoy ya están 100% vendidas (Notas de Venta + Consumidor Final) o devueltas.
         const stockPorProducto = useMemo(() => PRODUCTOS_POLACA.map(p => {
             // Unidades ingresadas por facturas de compra
             const entradasCompra = docsCompra.reduce((acc, doc) => {
-                const item = doc.items?.find(it => it.id === p.id);
-                return acc + (item ? parseFloat(item.q) || 0 : 0);
+                if (doc.destino === '3puentes') return acc;
+                return acc + (doc.items || []).reduce((s, it) => {
+                    if (normalizarIdProducto(it) !== p.id) return s;
+                    const qTotal = parseFloat(it.q) || 0;
+                    const q3P = doc.destino === 'mixto' ? (parseFloat(doc.q3Puentes?.[it.id] || doc.q3Puentes?.[p.id] || 0) || 0) : 0;
+                    return s + Math.max(0, qTotal - q3P);
+                }, 0);
             }, 0);
 
-            // Unidades despachadas a rutas
-            const despachado = cargas.reduce((a, c) => a + (c.items?.find(it => it.id === p.id)?.q || 0), 0);
+            // Unidades vendidas (Notas de Venta + Consumidor Final automático de facturas hasta hoy)
+            const vendidoEfectivo = (ventasNotasEfectivas || []).reduce((acc, v) => {
+                return acc + (v.items || []).reduce((s, it) => normalizarIdProducto(it) === p.id ? s + (parseFloat(it.q) || 0) : s, 0);
+            }, 0);
+
+            // Unidades despachadas a rutas (efectivas = todas las vendidas en Notas + Consumidor Final)
+            const despachadoManual = cargas.reduce((a, c) => a + (c.items || []).reduce((s, it) => normalizarIdProducto(it) === p.id ? s + (parseFloat(it.q) || 0) : s, 0), 0);
+            const despachado = Math.max(despachadoManual, vendidoEfectivo);
             // Unidades sobrantes en buen estado devueltas de ruta por vendedores
-            const devuelto   = cargas.reduce((a, c) => a + (c.itemsDevueltos?.find(it => it.id === p.id)?.q || 0), 0);
+            const devuelto   = cargas.reduce((a, c) => a + (c.itemsDevueltos || []).reduce((s, it) => normalizarIdProducto(it) === p.id ? s + (parseFloat(it.q) || 0) : s, 0), 0);
 
             // Unidades dadas de baja por devolución de clientes / averías / vencidos (PÉRDIDA 100%)
             const bajasDevolucion = docsDevolucion.reduce((acc, dev) => {
-                const it = dev.items?.find(i => i.id === p.id);
-                return acc + (it ? parseFloat(it.q) || 0 : 0);
+                return acc + (dev.items || []).reduce((s, i) => normalizarIdProducto(i) === p.id ? s + (parseFloat(i.q) || 0) : s, 0);
             }, 0);
             
-            // Stock neto disponible en bodega apto para la venta
-            const stock = Math.max(0, entradasCompra - despachado + devuelto - bajasDevolucion);
+            // Stock neto disponible en bodega (hasta hoy todo el producto facturado ya está 100% vendido)
+            const stock = Math.max(0, entradasCompra - vendidoEfectivo - bajasDevolucion);
 
             return {
                 ...p,
                 entradas: entradasCompra,
                 despachado,
+                vendidoEfectivo,
+                unidadesCF: liquidacionFacturasConsumidorFinal.unidadesConsumidorFinal[p.id] || 0,
                 devuelto,
                 bajasDevolucion,
                 stock,
@@ -2709,7 +2937,7 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                 perdidaDevolucionCosto: bajasDevolucion * p.costo,
                 perdidaDevolucionVenta: bajasDevolucion * p.pvd
             };
-        }), [docsCompra, cargas, docsDevolucion]);
+        }), [docsCompra, cargas, docsDevolucion, ventasNotasEfectivas, liquidacionFacturasConsumidorFinal]);
 
         const totalesBodega = useMemo(() => {
             const stockTotal = stockPorProducto.reduce((a, p) => a + p.stock, 0);
@@ -2904,8 +3132,8 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                 }
             };
 
-            // 1. Ingresos y Ventas por Notas de Venta Ágiles
-            (ventasNotas || []).forEach(v => {
+            // 1. Ingresos y Ventas por Notas de Venta Ágiles + Consumidor Final (100% Facturas Vendidas hasta Hoy)
+            (ventasNotasEfectivas || []).forEach(v => {
                 const f = v.fecha || today;
                 asegurarDia(f);
                 let ventaNota = 0;
@@ -2914,10 +3142,11 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                 (v.items || []).forEach(it => {
                     const q = parseInt(it.q) || 0;
                     if (q > 0) {
-                        const prodBase = PRODUCTOS_POLACA.find(p => p.id === it.id);
+                        const pid = normalizarIdProducto(it) || it.id;
+                        const prodBase = PRODUCTOS_POLACA.find(p => p.id === pid);
                         const pvd = parseFloat(it.pvd) || prodBase?.pvd || 0;
                         const costo = parseFloat(it.costo) || prodBase?.costo || 0;
-                        diasMap[f].unidadesVendidas[it.id] = (diasMap[f].unidadesVendidas[it.id] || 0) + q;
+                        diasMap[f].unidadesVendidas[pid] = (diasMap[f].unidadesVendidas[pid] || 0) + q;
                         diasMap[f].totalUnidades += q;
                         const vItem = Number(it.subtotal) || (q * pvd);
                         const cItem = q * costo;
@@ -2930,54 +3159,57 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                 diasMap[f].costoTotal += costoNota;
                 diasMap[f].utilidadBruta += (ventaNota - costoNota);
                 diasMap[f].detallesRutas.push({
-                    vendedor: `${v.cliente || 'Cliente'} (${v.ciudad || v.direccion || 'Ruta'})`,
+                    vendedor: `${v.cliente || 'Consumidor Final'} (${v.ciudad || v.direccion || 'Ruta'})`,
                     ventaNeta: ventaNota,
                     depositado: ventaNota,
                     gastos: {}
                 });
             });
 
-            // 2. Cargas liquidadas históricas (compatibilidad hacia atrás si en esa fecha no hubo Notas de Venta)
-            cargas.filter(c => c.estado === 'liquidada' && c.rutaId !== 'local3puentes' && !c.sinUtilidad).forEach(c => {
-                const f = c.fechaLiquidacion || c.fecha;
-                const tieneNotasEseDia = (ventasNotas || []).some(v => v.fecha === f);
-                if (tieneNotasEseDia) return;
-                asegurarDia(f);
+            // 2. Cargas liquidadas históricas (compatibilidad hacia atrás solo si no hay facturas ni notas)
+            if ((docsCompra || []).length === 0) {
+                cargas.filter(c => c.estado === 'liquidada' && c.rutaId !== 'local3puentes' && !c.sinUtilidad).forEach(c => {
+                    const f = c.fechaLiquidacion || c.fecha;
+                    const tieneNotasEseDia = (ventasNotasEfectivas || []).some(v => v.fecha === f);
+                    if (tieneNotasEseDia) return;
+                    asegurarDia(f);
 
-                const devs = c.itemsDevueltos || [];
-                let ventaRuta = 0;
-                let costoRuta = 0;
+                    const devs = c.itemsDevueltos || [];
+                    let ventaRuta = 0;
+                    let costoRuta = 0;
 
-                (c.items || []).forEach(it => {
-                    const dev = devs.find(d => d.id === it.id)?.q || 0;
-                    const vendidas = Math.max(0, it.q - dev);
-                    if (vendidas > 0) {
-                        diasMap[f].unidadesVendidas[it.id] = (diasMap[f].unidadesVendidas[it.id] || 0) + vendidas;
-                        diasMap[f].totalUnidades += vendidas;
-                        const vItem = vendidas * (it.pvd || 0);
-                        const cItem = vendidas * (it.costo || 0);
-                        ventaRuta += vItem;
-                        costoRuta += cItem;
+                    (c.items || []).forEach(it => {
+                        const pid = normalizarIdProducto(it) || it.id;
+                        const dev = devs.find(d => (normalizarIdProducto(d) || d.id) === pid)?.q || 0;
+                        const vendidas = Math.max(0, it.q - dev);
+                        if (vendidas > 0) {
+                            diasMap[f].unidadesVendidas[pid] = (diasMap[f].unidadesVendidas[pid] || 0) + vendidas;
+                            diasMap[f].totalUnidades += vendidas;
+                            const vItem = vendidas * (it.pvd || 0);
+                            const cItem = vendidas * (it.costo || 0);
+                            ventaRuta += vItem;
+                            costoRuta += cItem;
+                        }
+                    });
+
+                    const utilBrutaRuta = ventaRuta - costoRuta;
+                    diasMap[f].ventaTotal += ventaRuta;
+                    diasMap[f].costoTotal += costoRuta;
+                    diasMap[f].utilidadBruta += utilBrutaRuta;
+
+                    if (c.gastos) {
+                        const gRutaVal = Object.values(c.gastos).reduce((acc, val) => acc + (parseFloat(val) || 0), 0);
+                        diasMap[f].gastosRutas += gRutaVal;
                     }
+
+                    diasMap[f].detallesRutas.push({
+                        vendedor: c.responsable,
+                        ventaNeta: c.ventaNeta || ventaRuta,
+                        depositado: c.totalADepositar,
+                        gastos: c.gastos
+                    });
                 });
-
-                const utilBrutaRuta = ventaRuta - costoRuta;
-                diasMap[f].ventaTotal += ventaRuta;
-                diasMap[f].costoTotal += costoRuta;
-                diasMap[f].utilidadBruta += utilBrutaRuta;
-
-                if (c.gastos) {
-                    const gRutaVal = Object.values(c.gastos).reduce((acc, val) => acc + (parseFloat(val) || 0), 0);
-                    diasMap[f].gastosRutas += gRutaVal;
-                }
-
-                diasMap[f].detallesRutas.push({
-                    vendedor: c.responsable,
-                    ventaNeta: c.ventaNeta || ventaRuta,
-                    depositado: c.totalADepositar,
-                    gastos: c.gastos
-                });
-            });
+            }
 
             // 3. Gastos Operativos Manuales
             docsGasto.forEach(g => {
@@ -3028,7 +3260,7 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                     margenNeto
                 };
             }).sort((a,b) => b.fecha.localeCompare(a.fecha));
-        }, [ventasNotas, cargas, docsGasto, docsDevolucion, today]);
+        }, [ventasNotasEfectivas, docsCompra, cargas, docsGasto, docsDevolucion, today]);
 
         const gananciasFiltradas = useMemo(() => {
             return reporteGananciasDiarias.filter(d => {
@@ -3053,21 +3285,25 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
             };
         }, [gananciasFiltradas, today]);
 
-        // Libro contable consolidado
+        // Libro contable consolidado (incluye Notas de Venta + Consumidor Final por saldo de facturas vendidas hasta hoy)
         const libroCompleto = useMemo(() => {
             let data = [];
-            (ventasNotas || []).forEach(v => {
+            (ventasNotasEfectivas || []).forEach(v => {
                 data.push({
                     fecha: v.fecha || today,
-                    desc: `NOTA DE VENTA ${v.numeroNota || ''}: ${v.cliente || 'Cliente'} (${v.ciudad || v.direccion || 'Ruta'})`,
+                    desc: v.esConsumidorFinalAuto
+                        ? `VENTA CONSUMIDOR FINAL (${v.totalUnidades} u. saldo total facturas vendidas hasta hoy)`
+                        : `NOTA DE VENTA ${v.numeroNota || ''}: ${v.cliente || 'Consumidor Final'} (${v.ciudad || v.direccion || 'Ruta'})`,
                     ingreso: parseFloat(v.totalMonto) || 0,
                     egreso: 0,
                     tipo: 'VENTA'
                 });
             });
 
-            cargas.filter(c => c.estado === 'liquidada').forEach(c =>
-                data.push({ fecha: c.fechaLiquidacion || c.fecha, desc: `DEPÓSITO RUTA: ${c.responsable}`, ingreso: parseFloat(c.totalADepositar)||0, egreso: 0, tipo: 'RUTA' }));
+            if ((docsCompra || []).length === 0) {
+                cargas.filter(c => c.estado === 'liquidada').forEach(c =>
+                    data.push({ fecha: c.fechaLiquidacion || c.fecha, desc: `DEPÓSITO RUTA: ${c.responsable}`, ingreso: parseFloat(c.totalADepositar)||0, egreso: 0, tipo: 'RUTA' }));
+            }
 
             docsCompra.forEach(d => {
                 (d.pagos || []).forEach(p => {
@@ -3100,7 +3336,7 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                 saldo += (m.ingreso - m.egreso);
                 return { ...m, saldoActual: saldo };
             }).reverse();
-        }, [ventasNotas, cargas, docsCompra, docsGasto, movManuales, today]);
+        }, [ventasNotasEfectivas, cargas, docsCompra, docsGasto, movManuales, today]);
 
         const libroFiltrado = useMemo(() => libroCompleto.filter(m => {
             const ok1 = filtroInicio ? m.fecha >= filtroInicio : true;
@@ -3860,9 +4096,9 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
             };
         }, [diasRutaMes]);
 
-        // ── CÁLCULO DE BALANCE MENSUAL: VENTAS (NOTAS DE VENTA) VS COMPRAS, CRÉDITO VEHÍCULO ($436) Y GASTOS OPERATIVOS MANUALES ──
+        // ── CÁLCULO DE BALANCE MENSUAL: VENTAS (NOTAS DE VENTA + CONSUMIDOR FINAL) VS COMPRAS, CRÉDITO VEHÍCULO ($436) Y GASTOS OPERATIVOS MANUALES ──
         const balanceMensualData = useMemo(() => {
-            const notasMes = (ventasNotas || []).filter(v => (v.fecha || '').startsWith(mesBalance));
+            const notasMes = (ventasNotasEfectivas || []).filter(v => (v.fecha || '').startsWith(mesBalance));
             const cargasMes = (cargas || []).filter(c => {
                 const f = c.fechaLiquidacion || c.fecha || '';
                 return f.startsWith(mesBalance) && c.rutaId !== 'local3puentes' && !c.sinUtilidad;
@@ -3882,12 +4118,13 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                 });
             });
 
-            // Sumar ventas desde las Notas de Venta Ágiles del mes
+            // Sumar ventas desde las Notas de Venta Ágiles + Consumidor Final del mes
             notasMes.forEach(v => {
                 (v.items || []).forEach(it => {
                     const q = parseInt(it.q) || 0;
                     if (q > 0) {
-                        const prodBase = PRODUCTOS_POLACA.find(p => p.id === it.id);
+                        const pid = normalizarIdProducto(it) || it.id;
+                        const prodBase = PRODUCTOS_POLACA.find(p => p.id === pid);
                         const pvd = parseFloat(it.pvd) || prodBase?.pvd || 0;
                         const costo = parseFloat(it.costo) || prodBase?.costo || 0;
                         totalUnidadesVendidas += q;
@@ -3897,22 +4134,24 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                 });
             });
 
-            // Si hay cargas liquidadas antiguas en días sin Notas de Venta
-            cargasMes.filter(c => c.estado === 'liquidada').forEach(c => {
-                const f = c.fechaLiquidacion || c.fecha || '';
-                const tieneNotas = notasMes.some(v => v.fecha === f);
-                if (tieneNotas) return;
-                gastosRutas += (parseFloat(c.gastosTotal) || 0);
-                const devs = c.itemsDevueltos || [];
-                (c.items || []).forEach(it => {
-                    const dev = devs.find(d => d.id === it.id)?.q || 0;
-                    const vend = Math.max(0, it.q - dev);
-                    totalDevueltoUnids += dev;
-                    totalUnidadesVendidas += vend;
-                    ventaBruta += vend * it.pvd;
-                    costoMercaderia += vend * it.costo;
+            // Si hay cargas liquidadas antiguas en días sin Notas de Venta y sin facturas
+            if ((docsCompra || []).length === 0) {
+                cargasMes.filter(c => c.estado === 'liquidada').forEach(c => {
+                    const f = c.fechaLiquidacion || c.fecha || '';
+                    const tieneNotas = notasMes.some(v => v.fecha === f);
+                    if (tieneNotas) return;
+                    gastosRutas += (parseFloat(c.gastosTotal) || 0);
+                    const devs = c.itemsDevueltos || [];
+                    (c.items || []).forEach(it => {
+                        const dev = devs.find(d => d.id === it.id)?.q || 0;
+                        const vend = Math.max(0, it.q - dev);
+                        totalDevueltoUnids += dev;
+                        totalUnidadesVendidas += vend;
+                        ventaBruta += vend * it.pvd;
+                        costoMercaderia += vend * it.costo;
+                    });
                 });
-            });
+            }
 
             const utilidadBruta = ventaBruta - costoMercaderia;
 
@@ -3920,6 +4159,10 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
             const comprasMes = (docsCompra || []).filter(d => (d.fecha || '').startsWith(mesBalance));
             const totalMontoComprasMes = comprasMes.reduce((a, d) => a + (parseFloat(d.monto) || parseFloat(d.subtotal) || 0), 0);
             const totalUnidadesCompradasMes = comprasMes.reduce((a, d) => a + (d.items || []).reduce((acc, it) => acc + (parseInt(it.q) || 0), 0), 0);
+
+            if (totalCargadoUnids < totalUnidadesCompradasMes) {
+                totalCargadoUnids = totalUnidadesCompradasMes;
+            }
 
             // Gastos operativos manuales del mes (docsGasto)
             const gastosOperativos = (docsGasto || [])
@@ -3949,7 +4192,7 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
             const superavitEquilibrio = Math.max(0, ventaBruta - metaEquilibrio);
 
             const balanceVentaVsCompraMonto = ventaBruta - totalMontoComprasMes;
-            const balanceUnidadesInventario = totalUnidadesCompradasMes - totalUnidadesVendidas;
+            const balanceUnidadesInventario = Math.max(0, totalUnidadesCompradasMes - totalUnidadesVendidas - unidadesPerdidasDevolucion);
 
             return {
                 mes: mesBalance,
@@ -3964,6 +4207,7 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                 totalGastosFijos,
                 gastosRutas,
                 gastosOperativos,
+                gastosOperativosManuales: gastosOperativos,
                 perdidaDevoluciones,
                 unidadesPerdidasDevolucion,
                 pagoVehiculo: GASTOS_PRESUPUESTADOS.pagoVehiculoMensual,
@@ -3981,17 +4225,21 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                 balanceVentaVsCompraMonto,
                 balanceUnidadesInventario
             };
-        }, [ventasNotas, cargas, docsGasto, docsDevolucion, docsCompra, mesBalance, presupuestoGastosMensual]);
+        }, [ventasNotasEfectivas, cargas, docsGasto, docsDevolucion, docsCompra, mesBalance, presupuestoGastosMensual]);
 
         // ── FILTRO CONSOLIDADO PARA REPORTES EXCEL (DIARIO / SEMANAL / MENSUAL / RANGO) ──
         const reporteExcelConsolidado = useMemo(() => {
             const desde = fechaReporteDesde;
             const hasta = fechaReporteHasta;
 
-            const notasPeriodo = (ventasNotas || []).filter(v => (v.fecha || '') >= desde && (v.fecha || '') <= hasta);
+            const notasPeriodo = (ventasNotasEfectivas || []).filter(v => (v.fecha || '') >= desde && (v.fecha || '') <= hasta);
             const cargasPeriodo = cargas.filter(c => {
                 const f = c.fechaLiquidacion || c.fecha || '';
                 return f >= desde && f <= hasta && c.rutaId !== 'local3puentes' && !c.sinUtilidad;
+            });
+            const comprasPeriodo = (docsCompra || []).filter(doc => {
+                const f = doc.fecha || today;
+                return f >= desde && f <= hasta && doc.destino !== '3puentes';
             });
 
             const gastosPeriodo = docsGasto.filter(g => (g.fecha || '') >= desde && (g.fecha || '') <= hasta);
@@ -4007,22 +4255,35 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
             const resumenPorProducto = PRODUCTOS_POLACA.map(p => {
                 let carg = 0, vend = 0, devCli = 0, ventaMonto = 0;
                 cargasPeriodo.forEach(c => {
-                    const item = c.items?.find(it => it.id === p.id);
-                    carg += (item ? (parseInt(item.q) || 0) : 0);
+                    (c.items || []).forEach(it => {
+                        if (normalizarIdProducto(it) === p.id) carg += (parseInt(it.q) || 0);
+                    });
+                });
+                comprasPeriodo.forEach(doc => {
+                    (doc.items || []).forEach(it => {
+                        if (normalizarIdProducto(it) === p.id) {
+                            const qTotal = parseInt(it.q) || 0;
+                            const q3P = doc.destino === 'mixto' ? (parseInt(doc.q3Puentes?.[it.id] || doc.q3Puentes?.[p.id] || 0) || 0) : 0;
+                            carg += Math.max(0, qTotal - q3P);
+                        }
+                    });
                 });
                 notasPeriodo.forEach(v => {
-                    const it = (v.items || []).find(i => i.id === p.id);
-                    if (it) {
-                        const q = parseInt(it.q) || 0;
-                        const pr = parseFloat(it.pvd) || p.pvd;
-                        vend += q;
-                        ventaMonto += (Number(it.subtotal) || (q * pr));
-                    }
+                    (v.items || []).forEach(it => {
+                        if (normalizarIdProducto(it) === p.id) {
+                            const q = parseInt(it.q) || 0;
+                            const pr = parseFloat(it.pvd) || p.pvd;
+                            vend += q;
+                            ventaMonto += (Number(it.subtotal) || (q * pr));
+                        }
+                    });
                 });
                 devsPeriodo.forEach(d => {
-                    const it = (d.items || []).find(i => i.id === p.id);
-                    if (it) devCli += (parseInt(it.q) || 0);
+                    (d.items || []).forEach(it => {
+                        if (normalizarIdProducto(it) === p.id) devCli += (parseInt(it.q) || 0);
+                    });
                 });
+                if (carg < vend + devCli) carg = vend + devCli;
                 const sob = Math.max(0, carg - vend - devCli);
                 const cTot = vend * p.costo;
                 return {
@@ -4075,7 +4336,7 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                 utilidadNeta,
                 resumenPorProducto
             };
-        }, [ventasNotas, cargas, docsGasto, docsDevolucion, fechaReporteDesde, fechaReporteHasta]);
+        }, [ventasNotasEfectivas, cargas, docsCompra, docsGasto, docsDevolucion, fechaReporteDesde, fechaReporteHasta, today]);
 
         // ── FUNCIÓN EXPORTAR REPORTE COMPLETO EN EXCEL (.XLSX) ──
         const descargarReporteExcel = () => {
@@ -5295,13 +5556,31 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                                 <div className="flex items-center gap-2">
                                     <Icon name="users" size={18} className="text-[#075E54]"/>
                                     <h3 className="text-sm font-black text-slate-800 uppercase tracking-tight">
-                                        Notas de Venta Registradas ({resumenCierreDia.ventas.length})
+                                        Notas de Venta Registradas + Liquidación Consumidor Final ({resumenCierreDia.ventas.length})
                                     </h3>
                                 </div>
                                 <span className="text-xs text-slate-500 font-bold">
-                                    {resumenCierreDia.porCliente.length} clientes atendidos
+                                    {resumenCierreDia.porCliente.length} clientes atendidos • 100% Facturas Vendidas
                                 </span>
                             </div>
+
+                            {liquidacionFacturasConsumidorFinal.totalUnidadesCF > 0 && (
+                                <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-cyan-50 border border-emerald-300 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                    <div>
+                                        <span className="text-[10px] font-black uppercase bg-[#075E54] text-white px-2 py-0.5 rounded-md">
+                                            ✓ Liquidación Automática Consumidor Final (100% Facturas Vendidas hasta Hoy)
+                                        </span>
+                                        <p className="text-xs text-slate-700 font-bold mt-1">
+                                            De las <strong>{liquidacionFacturasConsumidorFinal.totalUnidadesFacturadas} u.</strong> ingresadas en facturas hasta hoy, <strong>{liquidacionFacturasConsumidorFinal.totalUnidadesConNota} u.</strong> tienen nota de venta y las restantes <strong>{liquidacionFacturasConsumidorFinal.totalUnidadesCF} u.</strong> están contabilizadas como <strong>Consumidor Final</strong> para Caja y Ganancias.
+                                        </p>
+                                    </div>
+                                    <div className="text-right shrink-0">
+                                        <span className="text-[10px] font-black uppercase text-emerald-700 block">Ingreso Consumidor Final</span>
+                                        <span className="text-lg font-black text-emerald-900">${liquidacionFacturasConsumidorFinal.totalMontoCF.toFixed(2)}</span>
+                                        <span className="text-[10px] font-black text-teal-700 block">Utilidad: +${liquidacionFacturasConsumidorFinal.utilidadBrutaCF.toFixed(2)}</span>
+                                    </div>
+                                </div>
+                            )}
 
                             {resumenCierreDia.ventas.length === 0 ? (
                                 <div className="text-center py-8 text-slate-400">
@@ -5366,22 +5645,26 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                                                             >
                                                                 <Icon name="share-2" size={14}/>
                                                             </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => editarVentaNota(v)}
-                                                                className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg transition-all"
-                                                                title="Editar nota"
-                                                            >
-                                                                <Icon name="edit" size={14}/>
-                                                            </button>
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => eliminarVentaNota(v)}
-                                                                className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-all"
-                                                                title="Eliminar"
-                                                            >
-                                                                <Icon name="trash-2" size={14}/>
-                                                            </button>
+                                                            {!v.esConsumidorFinalAuto && (
+                                                                <>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => editarVentaNota(v)}
+                                                                        className="p-1.5 bg-amber-50 hover:bg-amber-100 text-amber-700 rounded-lg transition-all"
+                                                                        title="Editar nota"
+                                                                    >
+                                                                        <Icon name="edit" size={14}/>
+                                                                    </button>
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => eliminarVentaNota(v)}
+                                                                        className="p-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg transition-all"
+                                                                        title="Eliminar"
+                                                                    >
+                                                                        <Icon name="trash-2" size={14}/>
+                                                                    </button>
+                                                                </>
+                                                            )}
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -10841,9 +11124,14 @@ _Andrés Cárdenas - Distribuidor de Avena Polaca_`;
                         <div className="bg-white text-slate-800 p-6 rounded-3xl max-w-md w-full shadow-2xl text-center">
                             <h3 className="font-black text-lg text-red-600 mb-2">Aviso de Renderizado</h3>
                             <p className="text-xs text-slate-600 mb-4">{this.state.error?.message || "Ocurrió un error inesperado al cargar la interfaz"}</p>
-                            <button onClick={() => window.location.reload()} className="px-5 py-2.5 bg-[#075E54] text-white rounded-xl font-black text-xs uppercase shadow">
-                                Recargar Plataforma
-                            </button>
+                            <div className="flex items-center justify-center gap-2">
+                                <button onClick={() => this.setState({ hasError: false, error: null })} className="px-4 py-2.5 bg-slate-200 text-slate-800 rounded-xl font-black text-xs uppercase">
+                                    Reintentar Vista
+                                </button>
+                                <button onClick={() => window.location.reload()} className="px-5 py-2.5 bg-[#075E54] text-white rounded-xl font-black text-xs uppercase shadow">
+                                    Recargar Plataforma
+                                </button>
+                            </div>
                         </div>
                     </div>
                 );
