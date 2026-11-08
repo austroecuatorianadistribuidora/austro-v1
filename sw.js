@@ -1,4 +1,4 @@
-const CACHE_NAME = 'austropolaca-control-v5';
+const CACHE_NAME = 'austropolaca-control-v6';
 const ASSETS = [
   './',
   'index.html',
