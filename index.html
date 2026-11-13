@@ -443,8 +443,9 @@
         // 1. ESTADO Y FUNCIONES DE LA NOTA DE VENTA SÚPER ÁGIL (NÚMEROS GRANDES)
         // ═══════════════════════════════════════════════════════════════════════════
         const [editandoVentaId, setEditandoVentaId] = useState(null);
-        const [filtroPantallaAdjunta, setFiltroPantallaAdjunta] = useState('hoy'); // 'hoy' | 'semana' | 'mes' | 'todas'
-        const [incluirCFEnAdjunta, setIncluirCFEnAdjunta] = useState(false); // Ver notas reales vs incluir saldo facturas CF
+        const [filtroPantallaAdjunta, setFiltroPantallaAdjunta] = useState('todas'); // 'hoy' | 'semana' | 'mes' | 'todas'
+        const [incluirCFEnAdjunta, setIncluirCFEnAdjunta] = useState(true); // Por defecto TODO cuadrado al 100% con Consumidor Final
+        const [sidebarAbierto, setSidebarAbierto] = useState(false); // Control de barra vertical lateral en pantallas móviles
 
         const [formNota, setFormNota] = useState(() => ({
             fecha: today,
@@ -686,42 +687,91 @@
             mostrarAviso("✓ Nota de venta eliminada");
         };
 
-        // ── LIQUIDACIÓN AUTOMÁTICA DE FACTURAS HASTA HOY COMO "CONSUMIDOR FINAL" ──
+        // Función auxiliar para extraer las unidades de los 3 productos de cualquier factura registrada
+        const extraerUnidadesDeFactura = (doc) => {
+            const unids = { p1: 0, p2: 0, p3: 0 };
+            if (!doc) return unids;
+            (doc.items || []).forEach(it => {
+                const pid = normalizarIdProducto(it);
+                if (!pid) return;
+                const qTotal = parseInt(it.q) || 0;
+                if (qTotal > 0) unids[pid] += qTotal;
+            });
+            const sumaUnids = unids.p1 + unids.p2 + unids.p3;
+            const montoDoc = parseFloat(doc.monto) || 0;
+            // Si una factura histórica fue guardada solo con el monto en dólares y sin detalle de cantidades,
+            // se infiere proporcionalmente a la factura estándar (4080 Vaso 165g, 1740 Vaso 340g, 63 Botella 1/2L = $2460 ref)
+            if (sumaUnids === 0 && montoDoc > 0) {
+                const factor = montoDoc / 2460;
+                unids.p1 = Math.round(4080 * factor);
+                unids.p2 = Math.round(1740 * factor);
+                unids.p3 = Math.round(63 * factor);
+            }
+            return unids;
+        };
+
+        // ── LIQUIDACIÓN AUTOMÁTICA Y CUADRE AL 100% DE TODAS LAS FACTURAS INGRESADAS HASTA HOY ──
         const liquidacionFacturasConsumidorFinal = useMemo(() => {
             const unidadesFacturadas = { p1: 0, p2: 0, p3: 0 };
             const unidadesConNota = { p1: 0, p2: 0, p3: 0 };
             const unidadesDevueltas = { p1: 0, p2: 0, p3: 0 };
 
+            let totalFacturasHastaHoy = 0;
+            let totalMontoFacturasHastaHoy = 0;
+
             (docsCompra || []).forEach(doc => {
                 const fDoc = doc.fecha || today;
                 if (fDoc > today) return;
-                if (doc.destino === '3puentes') return;
-                (doc.items || []).forEach(it => {
-                    const pid = normalizarIdProducto(it);
-                    if (!pid) return;
-                    const qTotal = parseInt(it.q) || 0;
-                    const q3P = doc.destino === 'mixto' ? (parseInt(doc.q3Puentes?.[it.id] || doc.q3Puentes?.[pid] || 0) || 0) : 0;
-                    unidadesFacturadas[pid] += Math.max(0, qTotal - q3P);
-                });
+                totalFacturasHastaHoy += 1;
+                const unidsDoc = extraerUnidadesDeFactura(doc);
+                unidadesFacturadas.p1 += unidsDoc.p1;
+                unidadesFacturadas.p2 += unidsDoc.p2;
+                unidadesFacturadas.p3 += unidsDoc.p3;
+
+                const montoExplicito = parseFloat(doc.monto) || 0;
+                const costoItems = (unidsDoc.p1 * 0.31) + (unidsDoc.p2 * 0.70) + (unidsDoc.p3 * 0.89);
+                totalMontoFacturasHastaHoy += (montoExplicito > 0 ? montoExplicito : costoItems);
             });
+
+            let ventaNotasManualesHastaHoy = 0;
+            let costoNotasManualesHastaHoy = 0;
+            let notasManualesCountHastaHoy = 0;
 
             (ventasNotas || []).forEach(v => {
                 if (v.esConsumidorFinalAuto) return;
                 if ((v.fecha || today) > today) return;
+                notasManualesCountHastaHoy += 1;
                 (v.items || []).forEach(it => {
                     const pid = normalizarIdProducto(it);
-                    if (pid) unidadesConNota[pid] += (parseInt(it.q) || 0);
+                    const prodBase = PRODUCTOS_POLACA.find(p => p.id === pid);
+                    const q = parseInt(it.q) || 0;
+                    if (pid && q > 0 && prodBase) {
+                        unidadesConNota[pid] += q;
+                        const pvd = parseFloat(it.pvd) || prodBase.pvd;
+                        const c = parseFloat(it.costo) || prodBase.costo;
+                        ventaNotasManualesHastaHoy += (Number(it.subtotal) || (q * pvd));
+                        costoNotasManualesHastaHoy += (q * c);
+                    }
                 });
             });
 
+            let totalDevolucionesHastaHoy = 0;
             (docsDevolucion || []).forEach(d => {
                 if ((d.fecha || today) > today) return;
+                totalDevolucionesHastaHoy += (parseFloat(d.perdidaTotal) || 0);
                 (d.items || []).forEach(it => {
                     const pid = normalizarIdProducto(it);
                     if (pid) unidadesDevueltas[pid] += (parseInt(it.q) || 0);
                 });
             });
 
+            let totalGastosHastaHoy = 0;
+            (docsGasto || []).forEach(g => {
+                if ((g.fecha || today) > today) return;
+                totalGastosHastaHoy += (parseFloat(g.monto) || 0);
+            });
+
+            // Todo lo facturado hasta hoy que no esté en notas individuales ni en devoluciones se registra 100% vendido como Consumidor Final
             const unidadesConsumidorFinal = {
                 p1: Math.max(0, unidadesFacturadas.p1 - unidadesConNota.p1 - unidadesDevueltas.p1),
                 p2: Math.max(0, unidadesFacturadas.p2 - unidadesConNota.p2 - unidadesDevueltas.p2),
@@ -756,11 +806,11 @@
             const notaConsumidorFinalAuto = totalUnidadesCF > 0 ? {
                 id: 'cf_auto_facturas_hoy',
                 esConsumidorFinalAuto: true,
-                numeroNota: 'CF-FACTURAS',
+                numeroNota: 'CF-CUADRE-HOY',
                 fecha: today,
-                hora: 'Saldo Facturas',
-                cliente: 'Consumidor Final',
-                ciudad: 'Saldo Facturas Vendido',
+                hora: '100% Facturas Vendido',
+                cliente: 'Consumidor Final (Cuadre Total Facturas)',
+                ciudad: 'Todo Vendido Hasta Hoy',
                 totalUnidades: totalUnidadesCF,
                 totalMonto: totalMontoCF,
                 totalCosto: totalCostoCF,
@@ -768,21 +818,93 @@
                 items: itemsCF
             } : null;
 
+            // Totales acumulados de TODO el producto vendido hasta hoy (Notas de Venta + Consumidor Final)
+            const unidadesTotalesVendidasHastaHoy = {
+                p1: unidadesConNota.p1 + unidadesConsumidorFinal.p1,
+                p2: unidadesConNota.p2 + unidadesConsumidorFinal.p2,
+                p3: unidadesConNota.p3 + unidadesConsumidorFinal.p3
+            };
+            const totalUnidadesVendidasHastaHoy = unidadesTotalesVendidasHastaHoy.p1 + unidadesTotalesVendidasHastaHoy.p2 + unidadesTotalesVendidasHastaHoy.p3;
+            const ventaTotalHastaHoy = parseFloat((ventaNotasManualesHastaHoy + totalMontoCF).toFixed(2));
+            const costoTotalVendidoHastaHoy = parseFloat((costoNotasManualesHastaHoy + totalCostoCF).toFixed(2));
+            const utilidadBrutaGanadaHastaHoy = parseFloat((ventaTotalHastaHoy - costoTotalVendidoHastaHoy).toFixed(2));
+            totalMontoFacturasHastaHoy = parseFloat(totalMontoFacturasHastaHoy.toFixed(2));
+            totalGastosHastaHoy = parseFloat(totalGastosHastaHoy.toFixed(2));
+            totalDevolucionesHastaHoy = parseFloat(totalDevolucionesHastaHoy.toFixed(2));
+            const utilidadNetaGanadaHastaHoy = parseFloat((utilidadBrutaGanadaHastaHoy - totalGastosHastaHoy - totalDevolucionesHastaHoy).toFixed(2));
+
             return {
                 unidadesFacturadas,
                 unidadesConNota,
                 unidadesDevueltas,
                 unidadesConsumidorFinal,
+                unidadesTotalesVendidasHastaHoy,
+                totalFacturasHastaHoy,
+                totalMontoFacturasHastaHoy,
+                notasManualesCountHastaHoy,
+                ventaNotasManualesHastaHoy: parseFloat(ventaNotasManualesHastaHoy.toFixed(2)),
+                costoNotasManualesHastaHoy: parseFloat(costoNotasManualesHastaHoy.toFixed(2)),
                 totalUnidadesFacturadas: unidadesFacturadas.p1 + unidadesFacturadas.p2 + unidadesFacturadas.p3,
                 totalUnidadesConNota: unidadesConNota.p1 + unidadesConNota.p2 + unidadesConNota.p3,
                 totalUnidadesDevueltas: unidadesDevueltas.p1 + unidadesDevueltas.p2 + unidadesDevueltas.p3,
+                totalUnidadesVendidasHastaHoy,
                 totalUnidadesCF,
                 totalMontoCF,
                 totalCostoCF,
                 utilidadBrutaCF,
+                ventaTotalHastaHoy,
+                costoTotalVendidoHastaHoy,
+                utilidadBrutaGanadaHastaHoy,
+                totalGastosHastaHoy,
+                totalDevolucionesHastaHoy,
+                utilidadNetaGanadaHastaHoy,
                 notaConsumidorFinalAuto
             };
-        }, [docsCompra, ventasNotas, docsDevolucion, today]);
+        }, [docsCompra, ventasNotas, docsDevolucion, docsGasto, today]);
+
+        const asentarCuadreConsumidorFinalEnFirme = async () => {
+            const cf = liquidacionFacturasConsumidorFinal.notaConsumidorFinalAuto;
+            if (!cf || cf.totalUnidades <= 0) {
+                mostrarAviso("✓ Todo el producto de las facturas ya está 100% registrado en notas de venta.");
+                return;
+            }
+            const semanaInfo = obtenerSemanaDeFecha(today);
+            const localId = 'vn_cuadre_' + Date.now();
+            const notaFirme = {
+                id: localId,
+                localId,
+                firestoreId: localId,
+                numeroNota: `NV-CUADRE-${today.replace(/-/g, '')}`,
+                fecha: today,
+                hora: new Date().toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }),
+                timestamp: Date.now(),
+                semanaClave: semanaInfo.clave,
+                semanaEtiqueta: semanaInfo.etiqueta,
+                rutaDia: rutaHoy.nombre,
+                cliente: 'Consumidor Final (Cuadre Facturas Hasta Hoy)',
+                ciudad: 'Ruta Andrés Cárdenas',
+                direccion: 'Cuadre Total Hasta Hoy',
+                totalUnidades: cf.totalUnidades,
+                totalMonto: cf.totalMonto,
+                totalCosto: cf.totalCosto,
+                utilidadBruta: cf.utilidadBruta,
+                items: cf.items,
+                esCuadreFirme: true,
+                createdAt: new Date().toISOString()
+            };
+            setVentasNotas(prev => {
+                const nuevaLista = [notaFirme, ...prev];
+                try { localStorage.setItem('austropolaca_ventas_notas_v1', JSON.stringify(nuevaLista)); } catch(e) {}
+                return nuevaLista;
+            });
+            try {
+                if (window.appDb && window.appId && window.FB) {
+                    const colRef = FB.collection(window.appDb, 'artifacts', window.appId, 'public', 'data', 'ventasNotas');
+                    await FB.addDoc(colRef, notaFirme);
+                }
+            } catch(e) {}
+            mostrarAviso(`✓ Cuadre asentado en firme: ${cf.totalUnidades} u. vendidas • $${cf.totalMonto.toFixed(2)}`);
+        };
 
         const ventasNotasEfectivas = useMemo(() => {
             const manuales = (ventasNotas || []).filter(v => !v.esConsumidorFinalAuto);
@@ -1505,6 +1627,87 @@
             }
         };
 
+        // ── FILTRO DE FACTURAS POR RANGO DE FECHAS Y SUMA DEL TOTAL DE FACTURAS ──
+        const [fechaFacturaDesde, setFechaFacturaDesde] = useState('');
+        const [fechaFacturaHasta, setFechaFacturaHasta] = useState(today);
+        const [facturasSeleccionadasIds, setFacturasSeleccionadasIds] = useState([]);
+
+        const toggleSeleccionFactura = (id) => {
+            setFacturasSeleccionadasIds(prev =>
+                prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+            );
+        };
+
+        const resumenFacturasRango = useMemo(() => {
+            const listaOrdenada = [...(docsCompra || [])].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+            const enRangoFecha = listaOrdenada.filter(fac => {
+                const f = fac.fecha || today;
+                if (fechaFacturaDesde && f < fechaFacturaDesde) return false;
+                if (fechaFacturaHasta && f > fechaFacturaHasta) return false;
+                return true;
+            });
+
+            // Si el usuario marcó casillas específicas dentro del rango, sumamos esas; si no marcó ninguna, sumamos todas las del rango de fechas
+            const idsActivosEnRango = facturasSeleccionadasIds.filter(id => enRangoFecha.some(f => f.id === id));
+            const facturasParaSumar = idsActivosEnRango.length > 0
+                ? enRangoFecha.filter(f => idsActivosEnRango.includes(f.id))
+                : enRangoFecha;
+
+            let sumaSubtotal = 0;
+            let sumaIva = 0;
+            let sumaTotalFacturas = 0;
+            let sumaPagado = 0;
+            let sumaPendiente = 0;
+            const unidadesPorProd = { p1: 0, p2: 0, p3: 0 };
+            let ventaTotalGenerada = 0;
+            let costoTotalProductos = 0;
+
+            facturasParaSumar.forEach(fac => {
+                const unids = extraerUnidadesDeFactura(fac);
+                unidadesPorProd.p1 += unids.p1;
+                unidadesPorProd.p2 += unids.p2;
+                unidadesPorProd.p3 += unids.p3;
+
+                const costoItems = (unids.p1 * 0.31) + (unids.p2 * 0.70) + (unids.p3 * 0.89);
+                const ventaItems = (unids.p1 * 0.42) + (unids.p2 * 0.84) + (unids.p3 * 1.04);
+                costoTotalProductos += costoItems;
+                ventaTotalGenerada += ventaItems;
+
+                const totalFac = (parseFloat(fac.monto) || 0) > 0 ? parseFloat(fac.monto) : costoItems;
+                const subFac = (parseFloat(fac.subtotal) || 0) > 0 ? parseFloat(fac.subtotal) : (totalFac / 1.15);
+                const ivaFac = (parseFloat(fac.iva15) || 0) > 0 ? parseFloat(fac.iva15) : (totalFac - subFac);
+                const pagadoFac = (fac.pagos || []).reduce((a, p) => a + (parseFloat(p.monto) || 0), 0);
+                const pendFac = Math.max(0, totalFac - pagadoFac);
+
+                sumaTotalFacturas += totalFac;
+                sumaSubtotal += subFac;
+                sumaIva += ivaFac;
+                sumaPagado += pagadoFac;
+                sumaPendiente += pendFac;
+            });
+
+            const totalUnidades = unidadesPorProd.p1 + unidadesPorProd.p2 + unidadesPorProd.p3;
+            const utilidadGanadaFacturas = ventaTotalGenerada - costoTotalProductos;
+
+            return {
+                facturasEnRango: enRangoFecha,
+                facturasSumadas: facturasParaSumar,
+                usandoSeleccionManual: idsActivosEnRango.length > 0,
+                cantidadEnRango: enRangoFecha.length,
+                cantidadSumadas: facturasParaSumar.length,
+                sumaSubtotal: parseFloat(sumaSubtotal.toFixed(2)),
+                sumaIva: parseFloat(sumaIva.toFixed(2)),
+                sumaTotalFacturas: parseFloat(sumaTotalFacturas.toFixed(2)),
+                sumaPagado: parseFloat(sumaPagado.toFixed(2)),
+                sumaPendiente: parseFloat(sumaPendiente.toFixed(2)),
+                unidadesPorProd,
+                totalUnidades,
+                ventaTotalGenerada: parseFloat(ventaTotalGenerada.toFixed(2)),
+                costoTotalProductos: parseFloat(costoTotalProductos.toFixed(2)),
+                utilidadGanadaFacturas: parseFloat(utilidadGanadaFacturas.toFixed(2))
+            };
+        }, [docsCompra, fechaFacturaDesde, fechaFacturaHasta, facturasSeleccionadasIds, today]);
+
         // ═══════════════════════════════════════════════════════════════════════════
         // 6. CAJA Y UTILIDAD REAL: DIARIA, SEMANAL Y MENSUAL (VENTA, COMPRA, GASTOS)
         // ═══════════════════════════════════════════════════════════════════════════
@@ -1530,7 +1733,7 @@
                 });
                 const comprasRango = (docsCompra || []).filter(c => {
                     const f = c.fecha || today;
-                    return f >= desde && f <= hasta && c.destino !== '3puentes';
+                    return f >= desde && f <= hasta;
                 });
 
                 let ventaTotal = 0;
@@ -1694,105 +1897,214 @@
             XLSX.writeFile(wb, `Caja_Utilidad_AndresCardenas_${today}.xlsx`);
         };
 
-        // ── NAVEGACIÓN PRINCIPAL SIMPLIFICADA Y SÚPER ÁGIL (SOLO LO ESENCIAL) ──
+        // ── NAVEGACIÓN PRINCIPAL EN BARRA VERTICAL LATERAL ──
         const tabs = [
-            { id: 'notaVenta',    icon: 'zap',         label: '1. Nota de Venta Ágil', badge: `$${resumenTiempoRealAdjunto.totalValorCobrado.toFixed(0)}` },
-            { id: 'clientes',     icon: 'users',       label: '2. Clientes Semanal',   badge: `${historialClientesData.listaClientes.length}` },
-            { id: 'devoluciones', icon: 'rotate-ccw',  label: '3. Devoluciones Día' },
-            { id: 'gastos',       icon: 'receipt',     label: '4. Gastos Ágiles' },
-            { id: 'compras',      icon: 'file-text',   label: '5. Facturas y Pagos',   badge: `${docsCompra.length}` },
-            { id: 'caja',         icon: 'TrendingUp',  label: '6. Caja y Utilidad Real' }
+            { id: 'notaVenta',    icon: 'zap',         label: '1. Nota de Venta Ágil', badge: `$${resumenTiempoRealAdjunto.totalValorCobrado.toFixed(0)}`, desc: 'Registro rápido + Total en vivo' },
+            { id: 'clientes',     icon: 'users',       label: '2. Clientes Semanal',   badge: `${historialClientesData.listaClientes.length}`, desc: 'Historial por semana' },
+            { id: 'devoluciones', icon: 'rotate-ccw',  label: '3. Devoluciones Día',   desc: '1 solo ingreso fin del día' },
+            { id: 'gastos',       icon: 'receipt',     label: '4. Gastos Ágiles',      desc: 'Fecha, descripción y monto' },
+            { id: 'compras',      icon: 'file-text',   label: '5. Facturas y Pagos',   badge: `${docsCompra.length}`, desc: 'Rango de fechas + Suma total' },
+            { id: 'caja',         icon: 'trending-up', label: '6. Caja y Utilidad Real', badge: `+$${liquidacionFacturasConsumidorFinal.utilidadBrutaGanadaHastaHoy.toFixed(0)}`, desc: 'Diaria, Semanal, Mensual y Hasta Hoy' }
         ];
 
         return (
-            <div className="min-h-screen flex flex-col bg-slate-100 text-slate-900 pb-20 md:pb-8">
-                {/* ═══ BARRA SUPERIOR COMPACTA Y NAVEGACIÓN DIRECTA ═══ */}
-                <header className="sticky top-0 z-50 bg-[#075E54] text-white shadow-lg">
-                    <div className="max-w-7xl mx-auto px-3 sm:px-5 py-2.5 flex flex-col gap-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="min-h-screen flex bg-slate-100 text-slate-900">
+                {/* ═══ OVERLAY MÓVIL PARA LA BARRA VERTICAL LATERAL ═══ */}
+                {sidebarAbierto && (
+                    <div
+                        className="fixed inset-0 z-40 bg-slate-950/60 backdrop-blur-xs md:hidden"
+                        onClick={() => setSidebarAbierto(false)}
+                    />
+                )}
+
+                {/* ═══ BARRA VERTICAL LATERAL (SIDEBAR) PARA SELECCIONAR PESTAÑAS ═══ */}
+                <aside
+                    className={`fixed md:sticky top-0 left-0 z-50 h-screen w-72 bg-[#075E54] text-white shadow-2xl flex flex-col justify-between shrink-0 transition-transform duration-200 ${
+                        sidebarAbierto ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+                    }`}
+                >
+                    <div className="p-4 space-y-4 overflow-y-auto custom-scrollbar flex-1">
+                        {/* Cabecera de Marca en la Barra Vertical Lateral */}
+                        <div className="flex items-center justify-between gap-2 pb-3 border-b border-white/15">
                             <div className="flex items-center gap-2.5">
-                                <div className="w-10 h-10 rounded-xl bg-white p-0.5 shadow flex items-center justify-center overflow-hidden shrink-0">
+                                <div className="w-11 h-11 rounded-2xl bg-white p-0.5 shadow flex items-center justify-center overflow-hidden shrink-0">
                                     <img src="image.jpg" alt="Avena Polaca" className="w-full h-full object-contain" onError={(e) => { e.target.style.display='none'; }} />
                                 </div>
                                 <div>
-                                    <div className="flex items-center gap-2">
-                                        <h1 className="font-black text-base sm:text-lg tracking-tight uppercase leading-none">
-                                            Andrés Cárdenas
-                                        </h1>
-                                        <span className="bg-[#25D366] text-[#075E54] text-[10px] font-black px-2 py-0.5 rounded-full uppercase">
-                                            Ruta Única
-                                        </span>
-                                    </div>
-                                    <p className="text-[11px] text-emerald-100 font-bold mt-0.5">
-                                        🚚 Hoy ({rutaHoy.diaSemana}): <span className="text-amber-300 font-black">{rutaHoy.nombre}</span>
+                                    <span className="bg-[#25D366] text-[#075E54] text-[9px] font-black px-2 py-0.5 rounded-full uppercase inline-block mb-0.5">
+                                        Ruta Única Oficial
+                                    </span>
+                                    <h1 className="font-black text-base tracking-tight uppercase leading-none">
+                                        Andrés Cárdenas
+                                    </h1>
+                                    <p className="text-[11px] text-emerald-200 font-bold mt-0.5">
+                                        Avena Polaca
+                                    </p>
+                                </div>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setSidebarAbierto(false)}
+                                className="md:hidden w-8 h-8 rounded-xl bg-white/15 text-white font-black flex items-center justify-center"
+                            >
+                                ✕
+                            </button>
+                        </div>
+
+                        {/* Ruta del Día Actual */}
+                        <div className="p-3 rounded-2xl bg-white/10 border border-white/15">
+                            <span className="text-[10px] font-black uppercase text-emerald-200 block">
+                                🚚 Ruta de Hoy ({rutaHoy.diaSemana}):
+                            </span>
+                            <span className="text-xs font-black text-amber-300 block mt-0.5 leading-snug">
+                                {rutaHoy.nombre}
+                            </span>
+                        </div>
+
+                        {/* Lista Vertical de Pestañas */}
+                        <div className="space-y-1.5">
+                            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-200 px-2 block">
+                                Menú de Pestañas
+                            </span>
+                            <nav className="flex flex-col gap-1.5">
+                                {tabs.map(t => {
+                                    const activo = activeTab === t.id;
+                                    return (
+                                        <button
+                                            key={t.id}
+                                            type="button"
+                                            onClick={() => {
+                                                setActiveTab(t.id);
+                                                setSidebarAbierto(false);
+                                                window.scrollTo({ top: 0, behavior: 'smooth' });
+                                            }}
+                                            className={`w-full px-3.5 py-3 rounded-2xl text-left transition-all flex items-center justify-between gap-2 ${
+                                                activo
+                                                    ? 'bg-[#25D366] text-[#075E54] shadow-lg font-black scale-[1.01]'
+                                                    : 'bg-white/10 text-white hover:bg-white/20 font-bold'
+                                            }`}
+                                        >
+                                            <div className="flex items-center gap-2.5 min-w-0">
+                                                <Icon name={t.icon} size={18} className={activo ? 'text-[#075E54]' : 'text-emerald-200'} />
+                                                <div className="truncate">
+                                                    <span className="text-xs sm:text-sm font-black uppercase block truncate">
+                                                        {t.label}
+                                                    </span>
+                                                    <span className={`text-[10px] block truncate ${activo ? 'text-[#075E54]/80 font-bold' : 'text-emerald-100/75'}`}>
+                                                        {t.desc}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            {t.badge && (
+                                                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black shrink-0 ${
+                                                    activo ? 'bg-[#075E54] text-white' : 'bg-white/20 text-white'
+                                                }`}>
+                                                    {t.badge}
+                                                </span>
+                                            )}
+                                        </button>
+                                    );
+                                })}
+                            </nav>
+                        </div>
+                    </div>
+
+                    {/* Resumen de Cuadre Total Hasta Hoy en el Pie de la Barra Lateral */}
+                    <div className="p-4 bg-slate-950/50 border-t border-white/15 space-y-2">
+                        <div className="flex items-center justify-between">
+                            <span className="text-[10px] font-black uppercase text-[#25D366]">
+                                ✅ Cuadrado Hasta Hoy
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-[#25D366] text-[10px] font-black">
+                                100% Vendido
+                            </span>
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                            <div className="bg-white/10 p-2 rounded-xl">
+                                <span className="text-[9px] uppercase text-emerald-200 font-black block">Venta Total</span>
+                                <span className="text-sm font-black text-white">
+                                    ${liquidacionFacturasConsumidorFinal.ventaTotalHastaHoy.toFixed(2)}
+                                </span>
+                            </div>
+                            <div className="bg-white/10 p-2 rounded-xl">
+                                <span className="text-[9px] uppercase text-amber-200 font-black block">Utilidad Ganada</span>
+                                <span className="text-sm font-black text-[#25D366]">
+                                    +${liquidacionFacturasConsumidorFinal.utilidadBrutaGanadaHastaHoy.toFixed(2)}
+                                </span>
+                            </div>
+                        </div>
+                        <p className="text-[10px] text-emerald-200/90 font-bold leading-tight">
+                            📦 {liquidacionFacturasConsumidorFinal.totalUnidadesVendidasHastaHoy} u. vendidas de {liquidacionFacturasConsumidorFinal.totalFacturasHastaHoy} facturas.
+                        </p>
+                    </div>
+                </aside>
+
+                {/* ═══ CONTENEDOR DERECHO (CABECERA SUPERIOR + CONTENIDO DE LA PESTAÑA ACTIVA) ═══ */}
+                <div className="flex-1 flex flex-col min-w-0 pb-20 md:pb-8">
+                    <header className="sticky top-0 z-30 bg-[#075E54] md:bg-white text-white md:text-slate-900 shadow-md border-b border-slate-200">
+                        <div className="max-w-7xl mx-auto px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2.5">
+                                {/* Botón para desplegar la barra vertical lateral en celular/tablet */}
+                                <button
+                                    type="button"
+                                    onClick={() => setSidebarAbierto(true)}
+                                    className="md:hidden px-3 py-2 rounded-xl bg-[#25D366] text-[#075E54] font-black text-xs uppercase flex items-center gap-1.5 shadow"
+                                >
+                                    <Icon name="menu" size={18} />
+                                    <span>Menú</span>
+                                </button>
+                                <div>
+                                    <span className="text-[10px] font-black uppercase text-emerald-200 md:text-[#075E54] block">
+                                        {tabs.find(x => x.id === activeTab)?.label}
+                                    </span>
+                                    <p className="text-xs font-black text-white md:text-slate-700">
+                                        🚚 Hoy ({rutaHoy.diaSemana}): <span className="text-amber-300 md:text-emerald-700">{rutaHoy.nombre}</span>
                                     </p>
                                 </div>
                             </div>
 
-                            {/* Resumen rápido superior en números grandes */}
+                            {/* Indicadores Globales del Cuadre Hasta Hoy */}
                             <div className="flex items-center gap-2">
-                                <div className="bg-white/10 border border-white/20 px-3 py-1 rounded-xl text-right">
-                                    <span className="text-[9px] uppercase font-black text-emerald-200 block">Venta Cobrada ({filtroPantallaAdjunta.toUpperCase()})</span>
-                                    <span className="text-base sm:text-lg font-black text-[#25D366] leading-none">
-                                        ${resumenTiempoRealAdjunto.totalValorCobrado.toFixed(2)}
+                                <div className="bg-white/10 md:bg-emerald-50 border border-white/20 md:border-emerald-200 px-3 py-1 rounded-xl text-right">
+                                    <span className="text-[9px] uppercase font-black text-emerald-200 md:text-emerald-800 block">
+                                        Venta Total Hasta Hoy (100% Facturas)
+                                    </span>
+                                    <span className="text-sm sm:text-base font-black text-[#25D366] md:text-emerald-700 leading-none">
+                                        ${liquidacionFacturasConsumidorFinal.ventaTotalHastaHoy.toFixed(2)}
                                     </span>
                                 </div>
-                                <div className="bg-white/10 border border-white/20 px-3 py-1 rounded-xl text-right hidden sm:block">
-                                    <span className="text-[9px] uppercase font-black text-amber-200 block">Unidades Vendidas</span>
-                                    <span className="text-base sm:text-lg font-black text-white leading-none">
-                                        {resumenTiempoRealAdjunto.totalUnidadesVendidas} u.
+                                <div className="bg-white/10 md:bg-amber-50 border border-white/20 md:border-amber-200 px-3 py-1 rounded-xl text-right">
+                                    <span className="text-[9px] uppercase font-black text-amber-200 md:text-amber-800 block">
+                                        Utilidad Ganada Hasta Hoy
+                                    </span>
+                                    <span className="text-sm sm:text-base font-black text-amber-300 md:text-amber-700 leading-none">
+                                        +${liquidacionFacturasConsumidorFinal.utilidadBrutaGanadaHastaHoy.toFixed(2)}
                                     </span>
                                 </div>
                             </div>
                         </div>
+                    </header>
 
-                        {/* Pestañas grandes y directas */}
-                        <nav className="flex items-center gap-1.5 overflow-x-auto custom-scrollbar pb-1">
-                            {tabs.map(t => (
-                                <button
-                                    key={t.id}
-                                    type="button"
-                                    onClick={() => setActiveTab(t.id)}
-                                    className={`px-3.5 py-2 rounded-xl font-black text-xs uppercase tracking-wide whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                                        activeTab === t.id
-                                            ? 'bg-[#25D366] text-[#075E54] shadow-md scale-[1.01]'
-                                            : 'bg-white/10 text-white hover:bg-white/20'
-                                    }`}
-                                >
-                                    <span>{t.label}</span>
-                                    {t.badge && (
-                                        <span className={`px-1.5 py-0.5 rounded-md text-[10px] font-black ${
-                                            activeTab === t.id ? 'bg-[#075E54] text-white' : 'bg-white/20 text-white'
-                                        }`}>
-                                            {t.badge}
-                                        </span>
-                                    )}
-                                </button>
-                            ))}
-                        </nav>
-                    </div>
-                </header>
-
-                {/* Alertas flotantes */}
-                {error && (
-                    <div className="max-w-7xl mx-auto w-full px-4 pt-3">
-                        <div className="bg-red-600 text-white px-4 py-3 rounded-2xl shadow-lg flex items-center justify-between font-black text-sm">
-                            <span>⚠️ {error}</span>
-                            <button onClick={() => setError(null)} className="bg-white/20 px-2.5 py-1 rounded-lg text-xs">Cerrar</button>
+                    {/* Alertas flotantes */}
+                    {error && (
+                        <div className="max-w-7xl mx-auto w-full px-4 pt-3">
+                            <div className="bg-red-600 text-white px-4 py-3 rounded-2xl shadow-lg flex items-center justify-between font-black text-sm">
+                                <span>⚠️ {error}</span>
+                                <button onClick={() => setError(null)} className="bg-white/20 px-2.5 py-1 rounded-lg text-xs">Cerrar</button>
+                            </div>
                         </div>
-                    </div>
-                )}
-                {successMsg && (
-                    <div className="max-w-7xl mx-auto w-full px-4 pt-3">
-                        <div className="bg-emerald-700 text-white px-4 py-3 rounded-2xl shadow-lg flex items-center justify-between font-black text-sm">
-                            <span>{successMsg}</span>
-                            <button onClick={() => setSuccessMsg(null)} className="bg-white/20 px-2.5 py-1 rounded-lg text-xs">OK</button>
+                    )}
+                    {successMsg && (
+                        <div className="max-w-7xl mx-auto w-full px-4 pt-3">
+                            <div className="bg-emerald-700 text-white px-4 py-3 rounded-2xl shadow-lg flex items-center justify-between font-black text-sm">
+                                <span>{successMsg}</span>
+                                <button onClick={() => setSuccessMsg(null)} className="bg-white/20 px-2.5 py-1 rounded-lg text-xs">OK</button>
+                            </div>
                         </div>
-                    </div>
-                )}
+                    )}
 
-                {/* ═══ CONTENIDO PRINCIPAL ═══ */}
-                <main className="max-w-7xl mx-auto w-full px-3 sm:px-5 pt-4 flex-1">
+                    {/* ═══ CONTENIDO PRINCIPAL ═══ */}
+                    <main className="max-w-7xl mx-auto w-full px-3 sm:px-5 pt-4 flex-1">
 
                     {/* ═══════════════════════════════════════════════════════════════════════════
                         PESTAÑA 1: NOTA DE VENTA SÚPER ÁGIL (IZQUIERDA) + PANTALLA ADJUNTA EN TIEMPO REAL (DERECHA)
@@ -2064,6 +2376,84 @@
 
                             {/* ── COLUMNA DERECHA (5 COL): PANTALLA ADJUNTA EN TIEMPO REAL (SUMA DE NOTAS, PRODUCTO VENDIDO Y VALOR COBRADO) ── */}
                             <div className="lg:col-span-5 space-y-4">
+                                {/* Tarjeta de Cuadre Total de Facturas Hasta Hoy (100% Vendido) */}
+                                <div className="bg-gradient-to-br from-emerald-900 via-[#075E54] to-slate-900 text-white p-4 sm:p-5 rounded-3xl shadow-xl border-2 border-emerald-400/40 space-y-3">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-[#25D366] text-[#075E54] text-[10px] font-black uppercase">
+                                                ✅ 100% Producto de Facturas Vendido Hasta Hoy
+                                            </span>
+                                            <h3 className="text-base sm:text-lg font-black uppercase mt-1">
+                                                Cuadre Total Acumulado Hasta Hoy ({today})
+                                            </h3>
+                                            <p className="text-[11px] text-emerald-100 font-bold">
+                                                {liquidacionFacturasConsumidorFinal.totalFacturasHastaHoy} facturas ingresadas (${liquidacionFacturasConsumidorFinal.totalMontoFacturasHastaHoy.toFixed(2)}) • Stock pendiente: 0 u. (Arranca 100% cuadrado desde hoy)
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid grid-cols-3 gap-2">
+                                        <div className="bg-black/30 border border-white/15 p-2.5 rounded-2xl">
+                                            <span className="text-[9px] font-black uppercase text-emerald-300 block">Venta Total Hasta Hoy</span>
+                                            <span className="text-xl sm:text-2xl font-black text-[#25D366] leading-tight">
+                                                ${liquidacionFacturasConsumidorFinal.ventaTotalHastaHoy.toFixed(2)}
+                                            </span>
+                                            <span className="text-[10px] font-bold text-slate-300 block">
+                                                {liquidacionFacturasConsumidorFinal.totalUnidadesVendidasHastaHoy} u. vendidas
+                                            </span>
+                                        </div>
+                                        <div className="bg-black/30 border border-white/15 p-2.5 rounded-2xl">
+                                            <span className="text-[9px] font-black uppercase text-amber-300 block">Utilidad Bruta Ganada</span>
+                                            <span className="text-xl sm:text-2xl font-black text-amber-300 leading-tight">
+                                                +${liquidacionFacturasConsumidorFinal.utilidadBrutaGanadaHastaHoy.toFixed(2)}
+                                            </span>
+                                            <span className="text-[10px] font-bold text-slate-300 block">
+                                                Costo: ${liquidacionFacturasConsumidorFinal.costoTotalVendidoHastaHoy.toFixed(2)}
+                                            </span>
+                                        </div>
+                                        <div className="bg-black/30 border border-white/15 p-2.5 rounded-2xl">
+                                            <span className="text-[9px] font-black uppercase text-sky-300 block">Utilidad Neta Real</span>
+                                            <span className="text-xl sm:text-2xl font-black text-white leading-tight">
+                                                ${liquidacionFacturasConsumidorFinal.utilidadNetaGanadaHastaHoy.toFixed(2)}
+                                            </span>
+                                            <span className="text-[10px] font-bold text-slate-300 block">
+                                                Gastos: -${liquidacionFacturasConsumidorFinal.totalGastosHastaHoy.toFixed(2)}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Desglose de Unidades Vendidas Hasta Hoy por Producto */}
+                                    <div className="grid grid-cols-3 gap-1.5 text-center bg-white/10 p-2 rounded-2xl text-xs font-black">
+                                        <div>
+                                            <span className="text-[10px] text-emerald-200 block">🥛 Vaso 165g</span>
+                                            <span>{liquidacionFacturasConsumidorFinal.unidadesTotalesVendidasHastaHoy.p1} u.</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] text-emerald-200 block">🥤 Vaso 340g</span>
+                                            <span>{liquidacionFacturasConsumidorFinal.unidadesTotalesVendidasHastaHoy.p2} u.</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] text-emerald-200 block">🍶 Botella 1/2L</span>
+                                            <span>{liquidacionFacturasConsumidorFinal.unidadesTotalesVendidasHastaHoy.p3} u.</span>
+                                        </div>
+                                    </div>
+
+                                    {liquidacionFacturasConsumidorFinal.totalUnidadesCF > 0 && (
+                                        <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                                            <span className="text-[11px] font-bold text-emerald-200">
+                                                Incluye {liquidacionFacturasConsumidorFinal.totalUnidadesCF} u. (${liquidacionFacturasConsumidorFinal.totalMontoCF.toFixed(2)}) cuadradas como Consumidor Final.
+                                            </span>
+                                            <button
+                                                type="button"
+                                                onClick={asentarCuadreConsumidorFinalEnFirme}
+                                                className="px-3 py-1.5 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-[#075E54] text-[11px] font-black uppercase shadow"
+                                            >
+                                                📌 Guardar Nota Cuadre en Firme
+                                            </button>
+                                        </div>
+                                    )}
+                                </div>
+
                                 <div className="bg-white rounded-3xl border-2 border-slate-200 shadow-xl overflow-hidden">
                                     <div className="bg-slate-900 text-white p-4 sm:p-5">
                                         <div className="flex items-center justify-between gap-2">
@@ -2142,7 +2532,7 @@
                                                             : 'bg-slate-100 text-slate-700 border-slate-300'
                                                     }`}
                                                 >
-                                                    {incluirCFEnAdjunta ? '✓ Incluyendo Saldo Facturas (CF)' : '+ Incluir Saldo Facturas (CF)'}
+                                                    {incluirCFEnAdjunta ? '✓ Cuadrado 100% con Facturas (CF)' : 'Ver Solo Notas Individuales'}
                                                 </button>
                                             )}
                                         </div>
@@ -2815,32 +3205,230 @@
                                 </div>
                             </div>
 
-                            {/* Listado de Facturas y Registro de Pagos */}
-                            <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-3">
-                                <h3 className="text-sm font-black uppercase text-slate-700">
-                                    Facturas Registradas y Control de Pagos ({docsCompra.length})
-                                </h3>
-                                {docsCompra.length === 0 ? (
-                                    <p className="text-xs text-slate-400 font-bold py-6 text-center">No hay facturas registradas.</p>
+                            {/* ── SELECCIÓN DE FACTURAS POR RANGO DE FECHAS Y SUMA DEL TOTAL DE FACTURAS ── */}
+                            <div className="bg-white p-5 rounded-3xl border-2 border-indigo-500/30 shadow-lg space-y-4">
+                                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                                    <div>
+                                        <span className="text-xs font-black uppercase text-indigo-700 block">
+                                            📅 FILTRO POR RANGO DE FECHAS Y SUMA AUTOMÁTICA DE FACTURAS
+                                        </span>
+                                        <h3 className="text-xl font-black text-slate-900">
+                                            Seleccionar Facturas por Fechas y Sumar Total ({resumenFacturasRango.cantidadSumadas} de {docsCompra.length} facturas)
+                                        </h3>
+                                    </div>
+
+                                    {/* Botones rápidos de rango de fechas */}
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                        <button
+                                            type="button"
+                                            onClick={() => { setFechaFacturaDesde(''); setFechaFacturaHasta(today); setFacturasSeleccionadasIds([]); }}
+                                            className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase border ${
+                                                !fechaFacturaDesde && fechaFacturaHasta === today ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100 text-slate-700 border-slate-300'
+                                            }`}
+                                        >
+                                            Hasta Hoy
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => { setFechaFacturaDesde(''); setFechaFacturaHasta(''); setFacturasSeleccionadasIds([]); }}
+                                            className={`px-3 py-1.5 rounded-xl text-xs font-black uppercase border ${
+                                                !fechaFacturaDesde && !fechaFacturaHasta ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-slate-100 text-slate-700 border-slate-300'
+                                            }`}
+                                        >
+                                            Todas
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const mesIni = `${today.substring(0, 7)}-01`;
+                                                setFechaFacturaDesde(mesIni);
+                                                setFechaFacturaHasta(today);
+                                                setFacturasSeleccionadasIds([]);
+                                            }}
+                                            className="px-3 py-1.5 rounded-xl text-xs font-black uppercase bg-slate-100 hover:bg-indigo-100 text-slate-700 border border-slate-300"
+                                        >
+                                            Este Mes
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                const sem = obtenerSemanaDeFecha(today);
+                                                setFechaFacturaDesde(sem.inicio);
+                                                setFechaFacturaHasta(sem.fin);
+                                                setFacturasSeleccionadasIds([]);
+                                            }}
+                                            className="px-3 py-1.5 rounded-xl text-xs font-black uppercase bg-slate-100 hover:bg-indigo-100 text-slate-700 border border-slate-300"
+                                        >
+                                            Esta Semana
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Selectores de Fecha Desde y Fecha Hasta */}
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-slate-50 p-3.5 rounded-2xl border border-slate-200 items-end">
+                                    <div>
+                                        <label className="text-xs font-black uppercase text-slate-600 block mb-1">Fecha Desde:</label>
+                                        <input
+                                            type="date"
+                                            value={fechaFacturaDesde}
+                                            onChange={(e) => setFechaFacturaDesde(e.target.value)}
+                                            className="w-full px-3.5 py-2.5 rounded-xl bg-white border-2 border-slate-300 font-black text-sm outline-none focus:border-indigo-600"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs font-black uppercase text-slate-600 block mb-1">Fecha Hasta:</label>
+                                        <input
+                                            type="date"
+                                            value={fechaFacturaHasta}
+                                            onChange={(e) => setFechaFacturaHasta(e.target.value)}
+                                            className="w-full px-3.5 py-2.5 rounded-xl bg-white border-2 border-slate-300 font-black text-sm outline-none focus:border-indigo-600"
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        {resumenFacturasRango.usandoSeleccionManual && (
+                                            <button
+                                                type="button"
+                                                onClick={() => setFacturasSeleccionadasIds([])}
+                                                className="w-full py-2.5 px-3 rounded-xl bg-amber-100 text-amber-900 font-black text-xs uppercase border border-amber-300"
+                                            >
+                                                Sumar Todas las del Rango ({resumenFacturasRango.cantidadEnRango})
+                                            </button>
+                                        )}
+                                        {!resumenFacturasRango.usandoSeleccionManual && (
+                                            <div className="w-full py-2.5 px-3 rounded-xl bg-indigo-50 text-indigo-900 font-black text-xs text-center border border-indigo-200">
+                                                ✓ Sumando {resumenFacturasRango.cantidadSumadas} factura(s) del rango
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* TARJETA TOTALIZADORA DE LA SUMA DE FACTURAS SELECCIONADAS */}
+                                <div className="bg-gradient-to-r from-indigo-950 via-slate-900 to-emerald-950 text-white p-5 rounded-3xl shadow-xl space-y-4">
+                                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                                        <div className="bg-white/10 border border-indigo-400/40 p-3 rounded-2xl">
+                                            <span className="text-[10px] font-black uppercase text-indigo-300 block">
+                                                SUMA TOTAL FACTURAS ({resumenFacturasRango.cantidadSumadas})
+                                            </span>
+                                            <span className="text-2xl sm:text-3xl font-black text-white leading-tight block mt-0.5">
+                                                ${resumenFacturasRango.sumaTotalFacturas.toFixed(2)}
+                                            </span>
+                                            <span className="text-[10px] font-bold text-slate-300 block">
+                                                Sub: ${resumenFacturasRango.sumaSubtotal.toFixed(2)} • IVA: ${resumenFacturasRango.sumaIva.toFixed(2)}
+                                            </span>
+                                        </div>
+
+                                        <div className="bg-white/10 border border-emerald-400/40 p-3 rounded-2xl">
+                                            <span className="text-[10px] font-black uppercase text-emerald-300 block">
+                                                VENTA GENERADA (100%)
+                                            </span>
+                                            <span className="text-2xl sm:text-3xl font-black text-[#25D366] leading-tight block mt-0.5">
+                                                ${resumenFacturasRango.ventaTotalGenerada.toFixed(2)}
+                                            </span>
+                                            <span className="text-[10px] font-bold text-emerald-200 block">
+                                                {resumenFacturasRango.totalUnidades} u. totales
+                                            </span>
+                                        </div>
+
+                                        <div className="bg-white/10 border border-amber-400/40 p-3 rounded-2xl">
+                                            <span className="text-[10px] font-black uppercase text-amber-300 block">
+                                                UTILIDAD DE ESTAS FACTURAS
+                                            </span>
+                                            <span className="text-2xl sm:text-3xl font-black text-amber-300 leading-tight block mt-0.5">
+                                                +${resumenFacturasRango.utilidadGanadaFacturas.toFixed(2)}
+                                            </span>
+                                            <span className="text-[10px] font-bold text-slate-300 block">
+                                                Costo: ${resumenFacturasRango.costoTotalProductos.toFixed(2)}
+                                            </span>
+                                        </div>
+
+                                        <div className="bg-white/10 border border-white/15 p-3 rounded-2xl">
+                                            <span className="text-[10px] font-black uppercase text-sky-300 block">
+                                                TOTAL PAGADO
+                                            </span>
+                                            <span className="text-xl sm:text-2xl font-black text-sky-300 leading-tight block mt-0.5">
+                                                ${resumenFacturasRango.sumaPagado.toFixed(2)}
+                                            </span>
+                                        </div>
+
+                                        <div className="bg-white/10 border border-rose-400/30 p-3 rounded-2xl">
+                                            <span className="text-[10px] font-black uppercase text-rose-300 block">
+                                                SALDO PENDIENTE
+                                            </span>
+                                            <span className="text-xl sm:text-2xl font-black text-rose-300 leading-tight block mt-0.5">
+                                                ${resumenFacturasRango.sumaPendiente.toFixed(2)}
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Suma de unidades por producto en el rango seleccionado */}
+                                    <div className="grid grid-cols-3 gap-2 bg-black/30 p-3 rounded-2xl border border-white/10 text-center">
+                                        <div>
+                                            <span className="text-[10px] font-black uppercase text-indigo-200 block">🥛 Vaso 165g Sumado</span>
+                                            <span className="text-base sm:text-lg font-black text-white">{resumenFacturasRango.unidadesPorProd.p1} u.</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-black uppercase text-indigo-200 block">🥤 Vaso 340g Sumado</span>
+                                            <span className="text-base sm:text-lg font-black text-white">{resumenFacturasRango.unidadesPorProd.p2} u.</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-[10px] font-black uppercase text-indigo-200 block">🍶 Botella 1/2L Sumada</span>
+                                            <span className="text-base sm:text-lg font-black text-white">{resumenFacturasRango.unidadesPorProd.p3} u.</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* Listado de Facturas Filtradas y Registro de Pagos */}
+                                {resumenFacturasRango.facturasEnRango.length === 0 ? (
+                                    <p className="text-xs text-slate-400 font-bold py-6 text-center">
+                                        No hay facturas registradas en el rango de fechas seleccionado.
+                                    </p>
                                 ) : (
-                                    <div className="space-y-3">
-                                        {[...docsCompra].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '')).map(fac => {
+                                    <div className="space-y-3 pt-2">
+                                        {resumenFacturasRango.facturasEnRango.map(fac => {
                                             const pagado = (fac.pagos || []).reduce((a, p) => a + (parseFloat(p.monto) || 0), 0);
-                                            const total = parseFloat(fac.monto) || 0;
+                                            const unidsFac = extraerUnidadesDeFactura(fac);
+                                            const costoCalc = (unidsFac.p1 * 0.31) + (unidsFac.p2 * 0.70) + (unidsFac.p3 * 0.89);
+                                            const ventaCalc = (unidsFac.p1 * 0.42) + (unidsFac.p2 * 0.84) + (unidsFac.p3 * 1.04);
+                                            const utilCalc = ventaCalc - costoCalc;
+                                            const total = (parseFloat(fac.monto) || 0) > 0 ? parseFloat(fac.monto) : costoCalc;
                                             const pendiente = Math.max(0, parseFloat((total - pagado).toFixed(2)));
+                                            const estaSeleccionada = facturasSeleccionadasIds.includes(fac.id);
+                                            const vendida100 = (fac.fecha || today) <= today;
+
                                             return (
-                                                <div key={fac.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
+                                                <div
+                                                    key={fac.id}
+                                                    className={`p-4 rounded-2xl border-2 transition-all space-y-2.5 ${
+                                                        estaSeleccionada ? 'bg-indigo-50/70 border-indigo-500 shadow-md' : 'bg-slate-50 border-slate-200'
+                                                    }`}
+                                                >
                                                     <div className="flex flex-wrap items-center justify-between gap-2">
-                                                        <div>
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="font-black text-base text-slate-900">Factura #{fac.numFact}</span>
-                                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
-                                                                    pendiente <= 0.05 ? 'bg-emerald-100 text-emerald-800' : (pagado > 0 ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800')
-                                                                }`}>
-                                                                    {pendiente <= 0.05 ? 'CANCELADA' : (pagado > 0 ? 'ABONADA' : 'PENDIENTE')}
+                                                        <div className="flex items-start gap-3">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={estaSeleccionada}
+                                                                onChange={() => toggleSeleccionFactura(fac.id)}
+                                                                className="mt-1 w-5 h-5 accent-indigo-600 rounded cursor-pointer"
+                                                                title="Marcar para sumar individualmente"
+                                                            />
+                                                            <div>
+                                                                <div className="flex items-center gap-2 flex-wrap">
+                                                                    <span className="font-black text-base text-slate-900">Factura #{fac.numFact}</span>
+                                                                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                                                        pendiente <= 0.05 ? 'bg-emerald-100 text-emerald-800' : (pagado > 0 ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800')
+                                                                    }`}>
+                                                                        {pendiente <= 0.05 ? 'CANCELADA' : (pagado > 0 ? 'ABONADA' : 'PENDIENTE')}
+                                                                    </span>
+                                                                    {vendida100 && (
+                                                                        <span className="px-2 py-0.5 rounded-full bg-emerald-600 text-white text-[10px] font-black uppercase">
+                                                                            ✓ 100% PRODUCTO VENDIDO
+                                                                        </span>
+                                                                    )}
+                                                                </div>
+                                                                <span className="text-xs font-bold text-slate-500 block">
+                                                                    Fecha: {fac.fecha} • Venta Generada: <strong className="text-emerald-700">${ventaCalc.toFixed(2)}</strong> • Utilidad: <strong className="text-emerald-700">+${utilCalc.toFixed(2)}</strong>
                                                                 </span>
                                                             </div>
-                                                            <span className="text-xs font-bold text-slate-500">Fecha: {fac.fecha} • Ruta Andrés Cárdenas</span>
                                                         </div>
 
                                                         <div className="flex items-center gap-4">
@@ -2862,11 +3450,21 @@
                                                     {/* Botones de acciones de la factura */}
                                                     <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
                                                         <div className="flex flex-wrap gap-1.5">
-                                                            {(fac.items || []).filter(i => i.q > 0).map((it, idx) => (
-                                                                <span key={idx} className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-xs font-black text-slate-700">
-                                                                    {it.q}x {it.nombreCorto || it.nombre}
+                                                            {unidsFac.p1 > 0 && (
+                                                                <span className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-xs font-black text-slate-700">
+                                                                    {unidsFac.p1}x Vaso 165g
                                                                 </span>
-                                                            ))}
+                                                            )}
+                                                            {unidsFac.p2 > 0 && (
+                                                                <span className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-xs font-black text-slate-700">
+                                                                    {unidsFac.p2}x Vaso 340g
+                                                                </span>
+                                                            )}
+                                                            {unidsFac.p3 > 0 && (
+                                                                <span className="px-2 py-0.5 rounded-md bg-white border border-slate-200 text-xs font-black text-slate-700">
+                                                                    {unidsFac.p3}x Botella 1/2L
+                                                                </span>
+                                                            )}
                                                         </div>
                                                         <div className="flex items-center gap-1.5">
                                                             {fac.archivo && (
@@ -2932,10 +3530,88 @@
                     )}
 
                     {/* ═══════════════════════════════════════════════════════════════════════════
-                        PESTAÑA 6: CAJA Y UTILIDAD REAL (DIARIA, SEMANAL Y MENSUAL)
+                        PESTAÑA 6: CAJA Y UTILIDAD REAL (DIARIA, SEMANAL, MENSUAL Y CUADRE TOTAL HASTA HOY)
                     ═══════════════════════════════════════════════════════════════════════════ */}
                     {activeTab === 'caja' && (
                         <div className="space-y-5 fade-in">
+                            {/* BANNER PRINCIPAL DE LIQUIDACIÓN Y CUADRE TOTAL HASTA HOY (100% FACTURAS VENDIDAS) */}
+                            <div className="bg-gradient-to-r from-[#075E54] via-emerald-900 to-slate-900 text-white p-5 sm:p-6 rounded-3xl shadow-xl border-2 border-emerald-400/40 space-y-4">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div>
+                                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#25D366] text-[#075E54] text-xs font-black uppercase">
+                                            ✅ LIQUIDACIÓN TOTAL HASTA HOY ({today}) • 100% PRODUCTO VENDIDO
+                                        </span>
+                                        <h3 className="text-xl sm:text-2xl font-black mt-1.5">
+                                            Todo el Producto de las {liquidacionFacturasConsumidorFinal.totalFacturasHastaHoy} Facturas Ingresadas Hasta Hoy Está Vendido y Cuadrado
+                                        </h3>
+                                        <p className="text-xs text-emerald-100 font-bold">
+                                            Lo registrado en Notas de Venta ({liquidacionFacturasConsumidorFinal.totalUnidadesConNota} u.) + Saldo Consumidor Final ({liquidacionFacturasConsumidorFinal.totalUnidadesCF} u.) = {liquidacionFacturasConsumidorFinal.totalUnidadesVendidasHastaHoy} u. vendidas (Arranca de 0 desde hoy).
+                                        </p>
+                                    </div>
+                                    {liquidacionFacturasConsumidorFinal.totalUnidadesCF > 0 && (
+                                        <button
+                                            type="button"
+                                            onClick={asentarCuadreConsumidorFinalEnFirme}
+                                            className="px-4 py-3 rounded-2xl bg-[#25D366] hover:bg-[#20bd5a] text-[#075E54] font-black text-xs uppercase shadow-lg shrink-0"
+                                        >
+                                            📌 Asentar Nota de Cuadre en Firme
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                                    <div className="bg-black/30 border border-white/15 p-3.5 rounded-2xl">
+                                        <span className="text-[10px] font-black uppercase text-indigo-300 block">Total Facturas Hasta Hoy</span>
+                                        <span className="text-2xl font-black text-white block mt-0.5">
+                                            ${liquidacionFacturasConsumidorFinal.totalMontoFacturasHastaHoy.toFixed(2)}
+                                        </span>
+                                        <span className="text-[11px] font-bold text-slate-300">
+                                            {liquidacionFacturasConsumidorFinal.totalFacturasHastaHoy} facturas • {liquidacionFacturasConsumidorFinal.totalUnidadesFacturadas} u.
+                                        </span>
+                                    </div>
+
+                                    <div className="bg-black/30 border border-emerald-400/40 p-3.5 rounded-2xl">
+                                        <span className="text-[10px] font-black uppercase text-emerald-300 block">Venta Total Hasta Hoy</span>
+                                        <span className="text-2xl sm:text-3xl font-black text-[#25D366] block mt-0.5">
+                                            ${liquidacionFacturasConsumidorFinal.ventaTotalHastaHoy.toFixed(2)}
+                                        </span>
+                                        <span className="text-[11px] font-bold text-emerald-200">
+                                            {liquidacionFacturasConsumidorFinal.totalUnidadesVendidasHastaHoy} u. (100% vendido)
+                                        </span>
+                                    </div>
+
+                                    <div className="bg-black/30 border border-amber-400/40 p-3.5 rounded-2xl">
+                                        <span className="text-[10px] font-black uppercase text-amber-300 block">Utilidad Bruta Ganada</span>
+                                        <span className="text-2xl sm:text-3xl font-black text-amber-300 block mt-0.5">
+                                            +${liquidacionFacturasConsumidorFinal.utilidadBrutaGanadaHastaHoy.toFixed(2)}
+                                        </span>
+                                        <span className="text-[11px] font-bold text-slate-300">
+                                            Costo Prod.: ${liquidacionFacturasConsumidorFinal.costoTotalVendidoHastaHoy.toFixed(2)}
+                                        </span>
+                                    </div>
+
+                                    <div className="bg-black/30 border border-rose-400/30 p-3.5 rounded-2xl">
+                                        <span className="text-[10px] font-black uppercase text-rose-300 block">Gastos y Devoluciones</span>
+                                        <span className="text-2xl font-black text-rose-300 block mt-0.5">
+                                            -${(liquidacionFacturasConsumidorFinal.totalGastosHastaHoy + liquidacionFacturasConsumidorFinal.totalDevolucionesHastaHoy).toFixed(2)}
+                                        </span>
+                                        <span className="text-[11px] font-bold text-slate-300">
+                                            Gastos: ${liquidacionFacturasConsumidorFinal.totalGastosHastaHoy.toFixed(2)}
+                                        </span>
+                                    </div>
+
+                                    <div className="bg-emerald-950/90 border-2 border-[#25D366] p-3.5 rounded-2xl">
+                                        <span className="text-[10px] font-black uppercase text-[#25D366] block">Utilidad Neta Ganada Hasta Hoy</span>
+                                        <span className="text-2xl sm:text-3xl font-black text-white block mt-0.5">
+                                            ${liquidacionFacturasConsumidorFinal.utilidadNetaGanadaHastaHoy.toFixed(2)}
+                                        </span>
+                                        <span className="text-[11px] font-bold text-emerald-300">
+                                            ✓ Caja Cuadrada al Día de Hoy
+                                        </span>
+                                    </div>
+                                </div>
+                            </div>
+
                             <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-md flex flex-wrap items-center justify-between gap-3">
                                 <div>
                                     <span className="text-xs font-black uppercase text-[#075E54] block">
@@ -3078,7 +3754,8 @@
                             </div>
                         </div>
                     )}
-                </main>
+                    </main>
+                </div>
 
                 {/* ═══ MODAL ÁGIL PARA REGISTRAR PAGO DE FACTURA ═══ */}
                 {modalPagoCompra && (
