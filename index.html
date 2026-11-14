@@ -41,8 +41,8 @@
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
         import { getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, collection, doc, addDoc, onSnapshot, query, deleteDoc, updateDoc, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        window.FB = { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, getFirestore, collection, doc, addDoc, onSnapshot, query, deleteDoc, updateDoc, getDocs, serverTimestamp };
+        import { getFirestore, collection, doc, addDoc, setDoc, onSnapshot, query, deleteDoc, updateDoc, getDocs, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        window.FB = { initializeApp, getAuth, signInWithCustomToken, signInAnonymously, onAuthStateChanged, getFirestore, collection, doc, addDoc, setDoc, onSnapshot, query, deleteDoc, updateDoc, getDocs, serverTimestamp };
     </script>
 
     <style>
@@ -366,9 +366,33 @@
         };
     };
 
+    const VENDEDORES_TP_DEFAULT = [
+        { id: 'v1', nombre: 'Vendedor 1', headerBg: 'from-emerald-700 to-teal-800', badgeCls: 'bg-emerald-100 text-emerald-900 border-emerald-300' },
+        { id: 'v2', nombre: 'Vendedor 2', headerBg: 'from-sky-700 to-blue-800',    badgeCls: 'bg-sky-100 text-sky-900 border-sky-300' },
+        { id: 'v3', nombre: 'Vendedor 3', headerBg: 'from-indigo-700 to-purple-800', badgeCls: 'bg-indigo-100 text-indigo-900 border-indigo-300' },
+        { id: 'v4', nombre: 'Vendedor 4', headerBg: 'from-amber-600 to-orange-700',  badgeCls: 'bg-amber-100 text-amber-900 border-amber-300' }
+    ];
+
+    const detectarModoTresPuentesInicial = () => {
+        try {
+            if (window.MODO_TRES_PUENTES_DIRECTO === true) return true;
+            const params = new URLSearchParams(window.location.search || '');
+            const p = (params.get('admin') || params.get('modo') || params.get('punto') || '').toLowerCase();
+            if (p.includes('trespuentes') || p.includes('3puentes') || p === 'tp') return true;
+            const hash = (window.location.hash || '').toLowerCase();
+            if (hash.includes('trespuentes') || hash.includes('3puentes')) return true;
+            if ((window.location.pathname || '').toLowerCase().includes('tres-puentes')) return true;
+        } catch(e) {}
+        return false;
+    };
+
     function App() {
         const today = new Date().toISOString().split('T')[0];
         const rutaHoy = obtenerRutaPorFecha(today);
+
+        // Detectar si se ingresó por el Link Exclusivo de Administrador de Tres Puentes o dentro de la App
+        const [esLinkAdminTresPuentes] = useState(() => detectarModoTresPuentesInicial());
+        const [vistaPuntoVenta, setVistaPuntoVenta] = useState(() => detectarModoTresPuentesInicial() ? 'tresPuentes' : 'rutaAndres');
 
         const [user, setUser] = useState(null);
         // Al abrir la aplicación se visualiza de inmediato la NOTA DE VENTA ÁGIL
@@ -383,7 +407,7 @@
             setTimeout(() => setSuccessMsg(null), 3200);
         };
 
-        // ── COLECCIONES SINCRONIZADAS CON FIRESTORE Y LOCALSTORAGE ──
+        // ── COLECCIONES DE RUTA ANDRÉS CÁRDENAS (100% INDEPENDIENTES) ──
         const [ventasNotas, setVentasNotas] = useState(() => {
             try {
                 const s = localStorage.getItem('austropolaca_ventas_notas_v1');
@@ -396,6 +420,47 @@
         const [docsDevolucion, setDocsDevolucion] = useState([]);
         const [cargas, setCargas] = useState([]);
         const [movManuales, setMovManuales] = useState([]);
+
+        // ── COLECCIONES EXCLUSIVAS DEL LOCAL DE TRES PUENTES (APARTE DE LA RUTA) ──
+        const [tpVendedores, setTpVendedores] = useState(() => {
+            try {
+                const s = localStorage.getItem('austropolaca_tp_vendedores_v1');
+                if (s) {
+                    const parsed = JSON.parse(s);
+                    if (Array.isArray(parsed) && parsed.length === 4) {
+                        return VENDEDORES_TP_DEFAULT.map((def, idx) => ({
+                            ...def,
+                            nombre: parsed[idx]?.nombre || def.nombre
+                        }));
+                    }
+                }
+            } catch(e) {}
+            return VENDEDORES_TP_DEFAULT;
+        });
+
+        const [tpJornadas, setTpJornadas] = useState(() => {
+            try {
+                const s = localStorage.getItem('austropolaca_tp_jornadas_v1');
+                if (s) return JSON.parse(s);
+            } catch(e) {}
+            return [];
+        });
+
+        const [tpFacturas, setTpFacturas] = useState(() => {
+            try {
+                const s = localStorage.getItem('austropolaca_tp_facturas_v1');
+                if (s) return JSON.parse(s);
+            } catch(e) {}
+            return [];
+        });
+
+        const [tpEntregasAndres, setTpEntregasAndres] = useState(() => {
+            try {
+                const s = localStorage.getItem('austropolaca_tp_entregas_andres_v1');
+                if (s) return JSON.parse(s);
+            } catch(e) {}
+            return [];
+        });
 
         // ── CONEXIÓN A FIREBASE ──
         useEffect(() => {
@@ -430,6 +495,37 @@
                         });
                         setVentasNotas(lista);
                         try { localStorage.setItem('austropolaca_ventas_notas_v1', JSON.stringify(lista)); } catch(e) {}
+                    });
+
+                    // Listeners exclusivos para el Local de Tres Puentes
+                    FB.onSnapshot(col('tp_vendedores'), s => {
+                        const docCfg = s.docs.find(d => d.id === 'config_vendedores') || s.docs[0];
+                        if (docCfg) {
+                            const data = docCfg.data();
+                            if (Array.isArray(data.lista) && data.lista.length === 4) {
+                                const merged = VENDEDORES_TP_DEFAULT.map((def, i) => ({
+                                    ...def,
+                                    nombre: data.lista[i]?.nombre || def.nombre
+                                }));
+                                setTpVendedores(merged);
+                                try { localStorage.setItem('austropolaca_tp_vendedores_v1', JSON.stringify(merged)); } catch(e) {}
+                            }
+                        }
+                    });
+                    FB.onSnapshot(col('tp_jornadas'), s => {
+                        const lista = s.docs.map(d => ({ id: d.id, ...d.data() }));
+                        setTpJornadas(lista);
+                        try { localStorage.setItem('austropolaca_tp_jornadas_v1', JSON.stringify(lista)); } catch(e) {}
+                    });
+                    FB.onSnapshot(col('tp_facturas'), s => {
+                        const lista = s.docs.map(d => ({ id: d.id, ...d.data() }));
+                        setTpFacturas(lista);
+                        try { localStorage.setItem('austropolaca_tp_facturas_v1', JSON.stringify(lista)); } catch(e) {}
+                    });
+                    FB.onSnapshot(col('tp_entregas_andres'), s => {
+                        const lista = s.docs.map(d => ({ id: d.id, ...d.data() }));
+                        setTpEntregasAndres(lista);
+                        try { localStorage.setItem('austropolaca_tp_entregas_andres_v1', JSON.stringify(lista)); } catch(e) {}
                     });
                 } catch(e) {
                     console.error("Firebase init error:", e);
@@ -1897,6 +1993,562 @@
             XLSX.writeFile(wb, `Caja_Utilidad_AndresCardenas_${today}.xlsx`);
         };
 
+        // ═══════════════════════════════════════════════════════════════════════════
+        // MÓDULO APARTE: CONTROL ADMINISTRADOR — LOCAL DE TRES PUENTES
+        // (4 Vendedores Mañana/Noche + Facturas de Ingreso + Producto Ocasional de Andrés al Costo Sin Utilidad)
+        // ═══════════════════════════════════════════════════════════════════════════
+        const [tpSubTab, setTpSubTab] = useState('vendedores'); // 'vendedores' | 'andresCosto' | 'facturasTP' | 'resumenTP'
+        const [tpFechaDia, setTpFechaDia] = useState(today);
+        const [tpEditandoNombres, setTpEditandoNombres] = useState(false);
+
+        // Guardar nombres manuales de los 4 vendedores de Tres Puentes
+        const cambiarNombreVendedorTP = (idVend, nuevoNombre) => {
+            setTpVendedores(prev => {
+                const act = prev.map(v => v.id === idVend ? { ...v, nombre: nuevoNombre } : v);
+                try { localStorage.setItem('austropolaca_tp_vendedores_v1', JSON.stringify(act)); } catch(e) {}
+                return act;
+            });
+        };
+
+        const guardarNombresVendedoresTP = async () => {
+            try {
+                localStorage.setItem('austropolaca_tp_vendedores_v1', JSON.stringify(tpVendedores));
+                if (window.appDb && window.appId && window.FB) {
+                    const ref = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'tp_vendedores', 'config_vendedores');
+                    await FB.setDoc(ref, { lista: tpVendedores, updatedAt: new Date().toISOString() });
+                }
+                setTpEditandoNombres(false);
+                mostrarAviso("✓ Nombres de los 4 vendedores de Tres Puentes guardados");
+            } catch(e) {
+                mostrarAviso("✓ Nombres guardados localmente");
+            }
+        };
+
+        // Estructura vacía de los 4 vendedores para un día (Retiro Mañana y Retorno Noche de los 3 productos)
+        const crearMapaDiaVendedoresVacio = () => {
+            const mapa = {};
+            VENDEDORES_TP_DEFAULT.forEach(v => {
+                mapa[v.id] = {
+                    m_p1: 0, m_p2: 0, m_p3: 0, // Retiro en la Mañana
+                    n_p1: 0, n_p2: 0, n_p3: 0  // Retorno en la Noche
+                };
+            });
+            return mapa;
+        };
+
+        const [tpDatosDiaActual, setTpDatosDiaActual] = useState(() => crearMapaDiaVendedoresVacio());
+
+        // Cargar automáticamente los datos del día seleccionado (tpFechaDia) cuando cambia la fecha o llegan datos de Firestore
+        useEffect(() => {
+            const nuevoMapa = crearMapaDiaVendedoresVacio();
+            (tpJornadas || []).filter(j => j.fecha === tpFechaDia).forEach(j => {
+                if (j.vendedorId && nuevoMapa[j.vendedorId]) {
+                    nuevoMapa[j.vendedorId] = {
+                        m_p1: parseInt(j.m_p1) || 0,
+                        m_p2: parseInt(j.m_p2) || 0,
+                        m_p3: parseInt(j.m_p3) || 0,
+                        n_p1: parseInt(j.n_p1) || 0,
+                        n_p2: parseInt(j.n_p2) || 0,
+                        n_p3: parseInt(j.n_p3) || 0
+                    };
+                }
+            });
+            setTpDatosDiaActual(nuevoMapa);
+        }, [tpFechaDia, tpJornadas]);
+
+        const modificarCantidadVendedorTP = (vendedorId, campo, valor, esDelta = false) => {
+            setTpDatosDiaActual(prev => {
+                const actual = prev[vendedorId] || { m_p1: 0, m_p2: 0, m_p3: 0, n_p1: 0, n_p2: 0, n_p3: 0 };
+                const valNuevo = esDelta
+                    ? Math.max(0, (parseInt(actual[campo]) || 0) + valor)
+                    : (valor === '' ? 0 : Math.max(0, parseInt(valor) || 0));
+                return {
+                    ...prev,
+                    [vendedorId]: {
+                        ...actual,
+                        [campo]: valNuevo
+                    }
+                };
+            });
+        };
+
+        const calcularMetricasVendedorDia = (datosVend) => {
+            const d = datosVend || { m_p1: 0, m_p2: 0, m_p3: 0, n_p1: 0, n_p2: 0, n_p3: 0 };
+            const porProd = PRODUCTOS_POLACA.map(p => {
+                const manana = Math.max(0, parseInt(d[`m_${p.id}`]) || 0);
+                const noche = Math.max(0, parseInt(d[`n_${p.id}`]) || 0);
+                const vendido = Math.max(0, manana - noche);
+                const montoVenta = parseFloat((vendido * p.pvd).toFixed(2));
+                const montoCosto = parseFloat((vendido * p.costo).toFixed(2));
+                const utilidad = parseFloat((montoVenta - montoCosto).toFixed(2));
+                return {
+                    ...p,
+                    manana,
+                    noche,
+                    vendido,
+                    montoVenta,
+                    montoCosto,
+                    utilidad
+                };
+            });
+            const totalManana = porProd.reduce((a, b) => a + b.manana, 0);
+            const totalNoche = porProd.reduce((a, b) => a + b.noche, 0);
+            const totalVendido = porProd.reduce((a, b) => a + b.vendido, 0);
+            const totalVenta = parseFloat(porProd.reduce((a, b) => a + b.montoVenta, 0).toFixed(2));
+            const totalCosto = parseFloat(porProd.reduce((a, b) => a + b.montoCosto, 0).toFixed(2));
+            const totalUtilidad = parseFloat((totalVenta - totalCosto).toFixed(2));
+            return {
+                porProd,
+                totalManana,
+                totalNoche,
+                totalVendido,
+                totalVenta,
+                totalCosto,
+                totalUtilidad
+            };
+        };
+
+        const guardarJornadaVendedorTP = async (vendedorId, silencioso = false) => {
+            const vendInfo = tpVendedores.find(v => v.id === vendedorId) || { id: vendedorId, nombre: vendedorId };
+            const d = tpDatosDiaActual[vendedorId] || { m_p1: 0, m_p2: 0, m_p3: 0, n_p1: 0, n_p2: 0, n_p3: 0 };
+            const calc = calcularMetricasVendedorDia(d);
+            const docId = `${tpFechaDia}_${vendedorId}`;
+
+            const registro = {
+                id: docId,
+                fecha: tpFechaDia,
+                vendedorId,
+                vendedorNombre: vendInfo.nombre,
+                m_p1: parseInt(d.m_p1) || 0,
+                m_p2: parseInt(d.m_p2) || 0,
+                m_p3: parseInt(d.m_p3) || 0,
+                n_p1: parseInt(d.n_p1) || 0,
+                n_p2: parseInt(d.n_p2) || 0,
+                n_p3: parseInt(d.n_p3) || 0,
+                v_p1: calc.porProd[0].vendido,
+                v_p2: calc.porProd[1].vendido,
+                v_p3: calc.porProd[2].vendido,
+                totalManana: calc.totalManana,
+                totalNoche: calc.totalNoche,
+                totalVendido: calc.totalVendido,
+                totalVenta: calc.totalVenta,
+                totalCosto: calc.totalCosto,
+                totalUtilidad: calc.totalUtilidad,
+                updatedAt: new Date().toISOString()
+            };
+
+            setTpJornadas(prev => {
+                const resto = prev.filter(x => x.id !== docId && !(x.fecha === tpFechaDia && x.vendedorId === vendedorId));
+                const nueva = [registro, ...resto];
+                try { localStorage.setItem('austropolaca_tp_jornadas_v1', JSON.stringify(nueva)); } catch(e) {}
+                return nueva;
+            });
+
+            try {
+                if (window.appDb && window.appId && window.FB) {
+                    const ref = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'tp_jornadas', docId);
+                    await FB.setDoc(ref, registro);
+                }
+            } catch(e) {}
+
+            if (!silencioso) {
+                mostrarAviso(`✓ Guardado ${vendInfo.nombre} (${tpFechaDia}): Retiro ${calc.totalManana} u. | Retorno ${calc.totalNoche} u. | Vendido ${calc.totalVendido} u. ($${calc.totalVenta.toFixed(2)})`);
+            }
+        };
+
+        const guardarTodosLosVendedoresDiaTP = async () => {
+            for (const v of tpVendedores) {
+                await guardarJornadaVendedorTP(v.id, true);
+            }
+            mostrarAviso(`✓ Registro completo de los 4 vendedores guardado para la fecha ${tpFechaDia}`);
+        };
+
+        // ── PRODUCTO DEJADO POR ANDRÉS CÁRDENAS FUERA DE FACTURA (AL COSTO SIN UTILIDAD) ──
+        const [formAndresTP, setFormAndresTP] = useState({
+            fecha: today,
+            nota: 'Producto dejado por Andrés Cárdenas (Fuera de Factura)',
+            m_p1: 0, // Cantidad dejada / retirada para venta al costo
+            m_p2: 0,
+            m_p3: 0,
+            n_p1: 0, // Retorno en la noche si sobró
+            n_p2: 0,
+            n_p3: 0
+        });
+        const [editandoAndresId, setEditandoAndresId] = useState(null);
+
+        const calculoFormAndresAlCosto = useMemo(() => {
+            const porProd = PRODUCTOS_POLACA.map(p => {
+                const dejado = Math.max(0, parseInt(formAndresTP[`m_${p.id}`]) || 0);
+                const retorno = Math.max(0, parseInt(formAndresTP[`n_${p.id}`]) || 0);
+                const vendidoCosto = Math.max(0, dejado - retorno);
+                // Se comercializa ESTRICTAMENTE AL COSTO ($0.31, $0.70, $0.89) SIN UTILIDAD ($0.00)
+                const subtotalCosto = parseFloat((vendidoCosto * p.costo).toFixed(2));
+                const valorDejadoCosto = parseFloat((dejado * p.costo).toFixed(2));
+                return {
+                    ...p,
+                    dejado,
+                    retorno,
+                    vendidoCosto,
+                    subtotalCosto,
+                    valorDejadoCosto,
+                    utilidad: 0
+                };
+            });
+            const totalDejadoUnids = porProd.reduce((a, b) => a + b.dejado, 0);
+            const totalRetornoUnids = porProd.reduce((a, b) => a + b.retorno, 0);
+            const totalVendidoUnids = porProd.reduce((a, b) => a + b.vendidoCosto, 0);
+            const totalCobradoAlCosto = parseFloat(porProd.reduce((a, b) => a + b.subtotalCosto, 0).toFixed(2));
+            const totalValorDejadoCosto = parseFloat(porProd.reduce((a, b) => a + b.valorDejadoCosto, 0).toFixed(2));
+            return {
+                porProd,
+                totalDejadoUnids,
+                totalRetornoUnids,
+                totalVendidoUnids,
+                totalCobradoAlCosto,
+                totalValorDejadoCosto,
+                utilidad: 0 // Sin utilidad ($0.00)
+            };
+        }, [formAndresTP]);
+
+        const guardarEntregaAndresAlCosto = async () => {
+            if (calculoFormAndresAlCosto.totalDejadoUnids <= 0) {
+                setError("Ingresa la cantidad de al menos 1 producto dejado por Andrés fuera de factura.");
+                return;
+            }
+            const idDoc = editandoAndresId || ('tp_andres_' + Date.now());
+            const payload = {
+                id: idDoc,
+                fecha: formAndresTP.fecha || today,
+                nota: (formAndresTP.nota || '').trim() || 'Producto de Andrés fuera de factura (Al Costo)',
+                m_p1: parseInt(formAndresTP.m_p1) || 0,
+                m_p2: parseInt(formAndresTP.m_p2) || 0,
+                m_p3: parseInt(formAndresTP.m_p3) || 0,
+                n_p1: parseInt(formAndresTP.n_p1) || 0,
+                n_p2: parseInt(formAndresTP.n_p2) || 0,
+                n_p3: parseInt(formAndresTP.n_p3) || 0,
+                v_p1: calculoFormAndresAlCosto.porProd[0].vendidoCosto,
+                v_p2: calculoFormAndresAlCosto.porProd[1].vendidoCosto,
+                v_p3: calculoFormAndresAlCosto.porProd[2].vendidoCosto,
+                totalDejadoUnids: calculoFormAndresAlCosto.totalDejadoUnids,
+                totalRetornoUnids: calculoFormAndresAlCosto.totalRetornoUnids,
+                totalVendidoUnids: calculoFormAndresAlCosto.totalVendidoUnids,
+                totalValorDejadoCosto: calculoFormAndresAlCosto.totalValorDejadoCosto,
+                totalCobradoAlCosto: calculoFormAndresAlCosto.totalCobradoAlCosto,
+                utilidad: 0, // Comercializado al costo sin utilidad
+                updatedAt: new Date().toISOString()
+            };
+
+            setTpEntregasAndres(prev => {
+                const resto = prev.filter(x => x.id !== idDoc);
+                const nueva = [payload, ...resto];
+                try { localStorage.setItem('austropolaca_tp_entregas_andres_v1', JSON.stringify(nueva)); } catch(e) {}
+                return nueva;
+            });
+
+            try {
+                if (window.appDb && window.appId && window.FB) {
+                    const ref = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'tp_entregas_andres', idDoc);
+                    await FB.setDoc(ref, payload);
+                }
+            } catch(e) {}
+
+            setEditandoAndresId(null);
+            setFormAndresTP({
+                fecha: today,
+                nota: 'Producto dejado por Andrés Cárdenas (Fuera de Factura)',
+                m_p1: 0, m_p2: 0, m_p3: 0,
+                n_p1: 0, n_p2: 0, n_p3: 0
+            });
+            mostrarAviso(`✓ Producto de Andrés registrado al costo ($${payload.totalCobradoAlCosto.toFixed(2)} • Utilidad $0.00)`);
+        };
+
+        const eliminarEntregaAndresTP = async (id) => {
+            if (!confirm("¿Eliminar este registro de producto dejado por Andrés?")) return;
+            setTpEntregasAndres(prev => {
+                const f = prev.filter(x => x.id !== id);
+                try { localStorage.setItem('austropolaca_tp_entregas_andres_v1', JSON.stringify(f)); } catch(e) {}
+                return f;
+            });
+            try {
+                if (window.appDb && window.appId && window.FB) {
+                    await FB.deleteDoc(FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'tp_entregas_andres', id));
+                }
+            } catch(e) {}
+            mostrarAviso("✓ Registro eliminado");
+        };
+
+        // ── FACTURAS DE INGRESO EXCLUSIVAS DE LOCAL TRES PUENTES ──
+        const [tpFormFactura, setTpFormFactura] = useState(() => ({
+            fecha: today,
+            numFact: '',
+            items: crearItemsFacturaVacios(false),
+            subtotal: 0,
+            iva15: 0,
+            monto: 0,
+            archivo: null,
+            nombreArchivo: ''
+        }));
+        const [tpEditandoFacturaId, setTpEditandoFacturaId] = useState(null);
+        const [tpLeyendoPdf, setTpLeyendoPdf] = useState(false);
+        const [tpFechaFacDesde, setTpFechaFacDesde] = useState('');
+        const [tpFechaFacHasta, setTpFechaFacHasta] = useState(today);
+
+        const cambiarCantFacturaTP = (idProd, val) => {
+            const q = val === '' ? 0 : Math.max(0, parseInt(val) || 0);
+            setTpFormFactura(prev => {
+                const nuevos = prev.items.map(it => it.id === idProd ? { ...it, q } : it);
+                const calc = recalcularTotalesFactura(nuevos);
+                return { ...prev, ...calc };
+            });
+        };
+
+        const manejarSubidaPdfFacturaTP = async (e) => {
+            const file = e.target.files?.[0];
+            if (!file) return;
+            setTpLeyendoPdf(true);
+            try {
+                const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
+                const readerDataUrl = new FileReader();
+                const base64 = await new Promise((res, rej) => {
+                    readerDataUrl.onloadend = () => res(readerDataUrl.result);
+                    readerDataUrl.onerror = rej;
+                    readerDataUrl.readAsDataURL(file);
+                });
+                let datosExtraidos = null;
+                if (isPdf) {
+                    const arrayBuf = await file.arrayBuffer();
+                    const textoPdf = await extraerTextoDePDF(arrayBuf);
+                    if (textoPdf && textoPdf.trim().length > 10) {
+                        datosExtraidos = parsearTextoFacturaPolaca(textoPdf, tpFormFactura.fecha || today);
+                    }
+                }
+                setTpFormFactura(prev => {
+                    const tieneCant = datosExtraidos && (datosExtraidos.qP1 !== null || datosExtraidos.qP2 !== null || datosExtraidos.qP3 !== null);
+                    const nuevosItems = prev.items.map(it => {
+                        if (!tieneCant) return it;
+                        if (it.id === 'p1' && datosExtraidos.qP1 !== null) return { ...it, q: datosExtraidos.qP1 };
+                        if (it.id === 'p2' && datosExtraidos.qP2 !== null) return { ...it, q: datosExtraidos.qP2 };
+                        if (it.id === 'p3' && datosExtraidos.qP3 !== null) return { ...it, q: datosExtraidos.qP3 };
+                        return it;
+                    });
+                    const calc = recalcularTotalesFactura(nuevosItems, datosExtraidos?.montoExplicito || null);
+                    return {
+                        ...prev,
+                        fecha: datosExtraidos?.fecha || prev.fecha || today,
+                        numFact: datosExtraidos?.numFact || prev.numFact || file.name.replace(/\.[^.]+$/, ''),
+                        ...calc,
+                        archivo: base64,
+                        nombreArchivo: file.name
+                    };
+                });
+                mostrarAviso(`✓ Factura PDF cargada en Local Tres Puentes: ${file.name}`);
+            } catch(err) {
+                setError("Error al leer el PDF: " + (err.message || err));
+            } finally {
+                setTpLeyendoPdf(false);
+            }
+        };
+
+        const guardarFacturaIngresoTP = async () => {
+            const montoVal = parseFloat(tpFormFactura.monto) || 0;
+            if (montoVal <= 0) {
+                setError("Ingresa las cantidades de los productos o el monto de la factura de Tres Puentes.");
+                return;
+            }
+            const idDoc = tpEditandoFacturaId || ('tpfac_' + Date.now());
+            const numFactFinal = (tpFormFactura.numFact || '').trim() || `TP-${Date.now().toString().slice(-6)}`;
+            const payload = {
+                id: idDoc,
+                fecha: tpFormFactura.fecha || today,
+                numFact: numFactFinal,
+                proveedor: PROVEEDOR_UNICO.razonSocial,
+                puntoVenta: 'Local Tres Puentes',
+                items: tpFormFactura.items,
+                subtotal: parseFloat((tpFormFactura.subtotal || (montoVal / 1.15)).toFixed(2)),
+                iva15: parseFloat((tpFormFactura.iva15 || (montoVal - (montoVal / 1.15))).toFixed(2)),
+                monto: parseFloat(montoVal.toFixed(2)),
+                archivo: tpFormFactura.archivo || null,
+                nombreArchivo: tpFormFactura.nombreArchivo || '',
+                updatedAt: new Date().toISOString()
+            };
+
+            setTpFacturas(prev => {
+                const resto = prev.filter(x => x.id !== idDoc);
+                const nueva = [payload, ...resto];
+                try { localStorage.setItem('austropolaca_tp_facturas_v1', JSON.stringify(nueva)); } catch(e) {}
+                return nueva;
+            });
+
+            try {
+                if (window.appDb && window.appId && window.FB) {
+                    const ref = FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'tp_facturas', idDoc);
+                    await FB.setDoc(ref, payload);
+                }
+            } catch(e) {}
+
+            setTpEditandoFacturaId(null);
+            setTpFormFactura({
+                fecha: today,
+                numFact: '',
+                items: crearItemsFacturaVacios(false),
+                subtotal: 0,
+                iva15: 0,
+                monto: 0,
+                archivo: null,
+                nombreArchivo: ''
+            });
+            mostrarAviso(`✓ Factura de Ingreso #${numFactFinal} registrada en Local Tres Puentes ($${montoVal.toFixed(2)})`);
+        };
+
+        const eliminarFacturaTP = async (id) => {
+            if (!confirm("¿Eliminar esta factura de ingreso de Tres Puentes?")) return;
+            setTpFacturas(prev => {
+                const f = prev.filter(x => x.id !== id);
+                try { localStorage.setItem('austropolaca_tp_facturas_v1', JSON.stringify(f)); } catch(e) {}
+                return f;
+            });
+            try {
+                if (window.appDb && window.appId && window.FB) {
+                    await FB.deleteDoc(FB.doc(window.appDb, 'artifacts', window.appId, 'public', 'data', 'tp_facturas', id));
+                }
+            } catch(e) {}
+            mostrarAviso("✓ Factura eliminada de Tres Puentes");
+        };
+
+        // ── CÁLCULOS CONSOLIDADOS DEL LOCAL DE TRES PUENTES (STOCK, 4 VENDEDORES, FACTURAS Y PRODUCTO DE ANDRÉS AL COSTO) ──
+        const resumenGeneralTresPuentes = useMemo(() => {
+            // 1. Totales del día activo (tpFechaDia) sumando los 4 vendedores en vivo
+            let diaManana = 0, diaNoche = 0, diaVendido = 0, diaVenta = 0, diaCosto = 0, diaUtilidad = 0;
+            const resumenVendedoresHoy = tpVendedores.map(v => {
+                const calc = calcularMetricasVendedorDia(tpDatosDiaActual[v.id]);
+                diaManana += calc.totalManana;
+                diaNoche += calc.totalNoche;
+                diaVendido += calc.totalVendido;
+                diaVenta += calc.totalVenta;
+                diaCosto += calc.totalCosto;
+                diaUtilidad += calc.totalUtilidad;
+                return {
+                    ...v,
+                    ...calc
+                };
+            });
+
+            // 2. Facturas de Tres Puentes filtradas por rango de fechas
+            const facturasOrdenadas = [...(tpFacturas || [])].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || ''));
+            const facturasEnRango = facturasOrdenadas.filter(f => {
+                const fec = f.fecha || today;
+                if (tpFechaFacDesde && fec < tpFechaFacDesde) return false;
+                if (tpFechaFacHasta && fec > tpFechaFacHasta) return false;
+                return true;
+            });
+            let sumaFacturasRango = 0;
+            const unidsFacturadasRango = { p1: 0, p2: 0, p3: 0 };
+            facturasEnRango.forEach(f => {
+                const u = extraerUnidadesDeFactura(f);
+                unidsFacturadasRango.p1 += u.p1;
+                unidsFacturadasRango.p2 += u.p2;
+                unidsFacturadasRango.p3 += u.p3;
+                sumaFacturasRango += (parseFloat(f.monto) || 0);
+            });
+
+            // 3. Stock e Inventario Acumulado en Local Tres Puentes
+            const stockFacturadoTotal = { p1: 0, p2: 0, p3: 0 };
+            (tpFacturas || []).forEach(f => {
+                const u = extraerUnidadesDeFactura(f);
+                stockFacturadoTotal.p1 += u.p1;
+                stockFacturadoTotal.p2 += u.p2;
+                stockFacturadoTotal.p3 += u.p3;
+            });
+
+            const vendidoVendedoresHist = { p1: 0, p2: 0, p3: 0 };
+            let ventaTotalHistoricaVendedores = 0;
+            let costoTotalHistoricoVendedores = 0;
+            let utilidadTotalHistoricaVendedores = 0;
+
+            (tpJornadas || []).forEach(j => {
+                vendidoVendedoresHist.p1 += (parseInt(j.v_p1) || 0);
+                vendidoVendedoresHist.p2 += (parseInt(j.v_p2) || 0);
+                vendidoVendedoresHist.p3 += (parseInt(j.v_p3) || 0);
+                ventaTotalHistoricaVendedores += (parseFloat(j.totalVenta) || 0);
+                costoTotalHistoricoVendedores += (parseFloat(j.totalCosto) || 0);
+                utilidadTotalHistoricaVendedores += (parseFloat(j.totalUtilidad) || 0);
+            });
+
+            const stockDisponibleBodegaTP = {
+                p1: stockFacturadoTotal.p1 - vendidoVendedoresHist.p1,
+                p2: stockFacturadoTotal.p2 - vendidoVendedoresHist.p2,
+                p3: stockFacturadoTotal.p3 - vendidoVendedoresHist.p3
+            };
+
+            // 4. Totales de Producto Ocasional dejado por Andrés (Fuera de Factura — Al Costo Sin Utilidad)
+            const andresDejado = { p1: 0, p2: 0, p3: 0 };
+            const andresRetorno = { p1: 0, p2: 0, p3: 0 };
+            const andresVendidoCosto = { p1: 0, p2: 0, p3: 0 };
+            let andresTotalCobradoAlCosto = 0;
+            let andresTotalValorDejadoCosto = 0;
+
+            (tpEntregasAndres || []).forEach(ent => {
+                andresDejado.p1 += (parseInt(ent.m_p1) || 0);
+                andresDejado.p2 += (parseInt(ent.m_p2) || 0);
+                andresDejado.p3 += (parseInt(ent.m_p3) || 0);
+                andresRetorno.p1 += (parseInt(ent.n_p1) || 0);
+                andresRetorno.p2 += (parseInt(ent.n_p2) || 0);
+                andresRetorno.p3 += (parseInt(ent.n_p3) || 0);
+                andresVendidoCosto.p1 += (parseInt(ent.v_p1) || 0);
+                andresVendidoCosto.p2 += (parseInt(ent.v_p2) || 0);
+                andresVendidoCosto.p3 += (parseInt(ent.v_p3) || 0);
+                andresTotalCobradoAlCosto += (parseFloat(ent.totalCobradoAlCosto) || 0);
+                andresTotalValorDejadoCosto += (parseFloat(ent.totalValorDejadoCosto) || 0);
+            });
+
+            return {
+                resumenVendedoresHoy,
+                diaManana,
+                diaNoche,
+                diaVendido,
+                diaVenta: parseFloat(diaVenta.toFixed(2)),
+                diaCosto: parseFloat(diaCosto.toFixed(2)),
+                diaUtilidad: parseFloat(diaUtilidad.toFixed(2)),
+                facturasEnRango,
+                sumaFacturasRango: parseFloat(sumaFacturasRango.toFixed(2)),
+                unidsFacturadasRango,
+                stockFacturadoTotal,
+                vendidoVendedoresHist,
+                stockDisponibleBodegaTP,
+                ventaTotalHistoricaVendedores: parseFloat(ventaTotalHistoricaVendedores.toFixed(2)),
+                costoTotalHistoricoVendedores: parseFloat(costoTotalHistoricoVendedores.toFixed(2)),
+                utilidadTotalHistoricaVendedores: parseFloat(utilidadTotalHistoricaVendedores.toFixed(2)),
+                andresDejado,
+                andresRetorno,
+                andresVendidoCosto,
+                andresTotalUnidadesDejadas: andresDejado.p1 + andresDejado.p2 + andresDejado.p3,
+                andresTotalUnidadesVendidasCosto: andresVendidoCosto.p1 + andresVendidoCosto.p2 + andresVendidoCosto.p3,
+                andresTotalCobradoAlCosto: parseFloat(andresTotalCobradoAlCosto.toFixed(2)),
+                andresTotalValorDejadoCosto: parseFloat(andresTotalValorDejadoCosto.toFixed(2))
+            };
+        }, [tpVendedores, tpDatosDiaActual, tpFacturas, tpFechaFacDesde, tpFechaFacHasta, tpJornadas, tpEntregasAndres, today]);
+
+        const obtenerUrlLinkAdminTresPuentes = () => {
+            try {
+                const base = window.location.href.split('?')[0].split('#')[0];
+                if (base.endsWith('tres-puentes.html')) return base;
+                const dir = base.endsWith('/') ? base : base.replace(/\/[^\/]*$/, '/');
+                return `${dir}tres-puentes.html`;
+            } catch(e) {
+                return 'tres-puentes.html';
+            }
+        };
+
+        const copiarLinkAdminTresPuentes = () => {
+            const url = obtenerUrlLinkAdminTresPuentes();
+            try {
+                navigator.clipboard.writeText(url);
+                mostrarAviso(`✓ Link de Administrador Tres Puentes copiado: ${url}`);
+            } catch(e) {
+                prompt("Copia este link exclusivo para el Administrador del Local Tres Puentes:", url);
+            }
+        };
+
         // ── NAVEGACIÓN PRINCIPAL EN BARRA VERTICAL LATERAL ──
         const tabs = [
             { id: 'notaVenta',    icon: 'zap',         label: '1. Nota de Venta Ágil', badge: `$${resumenTiempoRealAdjunto.totalValorCobrado.toFixed(0)}`, desc: 'Registro rápido + Total en vivo' },
@@ -1905,6 +2557,13 @@
             { id: 'gastos',       icon: 'receipt',     label: '4. Gastos Ágiles',      desc: 'Fecha, descripción y monto' },
             { id: 'compras',      icon: 'file-text',   label: '5. Facturas y Pagos',   badge: `${docsCompra.length}`, desc: 'Rango de fechas + Suma total' },
             { id: 'caja',         icon: 'trending-up', label: '6. Caja y Utilidad Real', badge: `+$${liquidacionFacturasConsumidorFinal.utilidadBrutaGanadaHastaHoy.toFixed(0)}`, desc: 'Diaria, Semanal, Mensual y Hasta Hoy' }
+        ];
+
+        const tpTabs = [
+            { id: 'vendedores',  icon: 'users',       label: '1. Los 4 Vendedores (Mañana/Noche)', badge: `$${resumenGeneralTresPuentes.diaVenta.toFixed(0)}`, desc: 'Retiro mañana y retorno noche' },
+            { id: 'andresCosto', icon: 'package',     label: '2. Producto Andrés (Al Costo)',      badge: `${resumenGeneralTresPuentes.andresTotalUnidadesVendidasCosto} u.`, desc: 'Fuera de factura • Sin utilidad' },
+            { id: 'facturasTP',  icon: 'file-text',   label: '3. Facturas Ingreso 3 Puentes',      badge: `${tpFacturas.length}`, desc: 'Ingreso de facturas del local' },
+            { id: 'resumenTP',   icon: 'trending-up', label: '4. Caja, Stock y Utilidad Local',    badge: `+$${resumenGeneralTresPuentes.utilidadTotalHistoricaVendedores.toFixed(0)}`, desc: 'Control general del administrador' }
         ];
 
         return (
@@ -1917,9 +2576,11 @@
                     />
                 )}
 
-                {/* ═══ BARRA VERTICAL LATERAL (SIDEBAR) PARA SELECCIONAR PESTAÑAS ═══ */}
+                {/* ═══ BARRA VERTICAL LATERAL (SIDEBAR) PARA SELECCIONAR PESTAÑAS Y CAMBIAR ENTRE RUTA Y LOCAL TRES PUENTES ═══ */}
                 <aside
-                    className={`fixed md:sticky top-0 left-0 z-50 h-screen w-72 bg-[#075E54] text-white shadow-2xl flex flex-col justify-between shrink-0 transition-transform duration-200 ${
+                    className={`fixed md:sticky top-0 left-0 z-50 h-screen w-72 ${
+                        vistaPuntoVenta === 'tresPuentes' ? 'bg-slate-900' : 'bg-[#075E54]'
+                    } text-white shadow-2xl flex flex-col justify-between shrink-0 transition-transform duration-200 ${
                         sidebarAbierto ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
                     }`}
                 >
@@ -1931,11 +2592,13 @@
                                     <img src="image.jpg" alt="Avena Polaca" className="w-full h-full object-contain" onError={(e) => { e.target.style.display='none'; }} />
                                 </div>
                                 <div>
-                                    <span className="bg-[#25D366] text-[#075E54] text-[9px] font-black px-2 py-0.5 rounded-full uppercase inline-block mb-0.5">
-                                        Ruta Única Oficial
+                                    <span className={`text-[9px] font-black px-2 py-0.5 rounded-full uppercase inline-block mb-0.5 ${
+                                        vistaPuntoVenta === 'tresPuentes' ? 'bg-amber-400 text-slate-950' : 'bg-[#25D366] text-[#075E54]'
+                                    }`}>
+                                        {vistaPuntoVenta === 'tresPuentes' ? '🏪 Control Administrador' : '🚚 Ruta Única Oficial'}
                                     </span>
                                     <h1 className="font-black text-base tracking-tight uppercase leading-none">
-                                        Andrés Cárdenas
+                                        {vistaPuntoVenta === 'tresPuentes' ? 'Local Tres Puentes' : 'Andrés Cárdenas'}
                                     </h1>
                                     <p className="text-[11px] text-emerald-200 font-bold mt-0.5">
                                         Avena Polaca
@@ -1951,97 +2614,245 @@
                             </button>
                         </div>
 
-                        {/* Ruta del Día Actual */}
-                        <div className="p-3 rounded-2xl bg-white/10 border border-white/15">
-                            <span className="text-[10px] font-black uppercase text-emerald-200 block">
-                                🚚 Ruta de Hoy ({rutaHoy.diaSemana}):
+                        {/* Selector de Punto de Venta Aparte: Ruta Andrés Cárdenas vs Control Local Tres Puentes */}
+                        <div className="p-2.5 rounded-2xl bg-black/25 border border-white/15 space-y-2">
+                            <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 block px-1">
+                                Seleccionar Punto de Control (Independientes):
                             </span>
-                            <span className="text-xs font-black text-amber-300 block mt-0.5 leading-snug">
-                                {rutaHoy.nombre}
-                            </span>
-                        </div>
-
-                        {/* Lista Vertical de Pestañas */}
-                        <div className="space-y-1.5">
-                            <span className="text-[10px] font-black uppercase tracking-wider text-emerald-200 px-2 block">
-                                Menú de Pestañas
-                            </span>
-                            <nav className="flex flex-col gap-1.5">
-                                {tabs.map(t => {
-                                    const activo = activeTab === t.id;
-                                    return (
-                                        <button
-                                            key={t.id}
-                                            type="button"
-                                            onClick={() => {
-                                                setActiveTab(t.id);
-                                                setSidebarAbierto(false);
-                                                window.scrollTo({ top: 0, behavior: 'smooth' });
-                                            }}
-                                            className={`w-full px-3.5 py-3 rounded-2xl text-left transition-all flex items-center justify-between gap-2 ${
-                                                activo
-                                                    ? 'bg-[#25D366] text-[#075E54] shadow-lg font-black scale-[1.01]'
-                                                    : 'bg-white/10 text-white hover:bg-white/20 font-bold'
-                                            }`}
-                                        >
-                                            <div className="flex items-center gap-2.5 min-w-0">
-                                                <Icon name={t.icon} size={18} className={activo ? 'text-[#075E54]' : 'text-emerald-200'} />
-                                                <div className="truncate">
-                                                    <span className="text-xs sm:text-sm font-black uppercase block truncate">
-                                                        {t.label}
-                                                    </span>
-                                                    <span className={`text-[10px] block truncate ${activo ? 'text-[#075E54]/80 font-bold' : 'text-emerald-100/75'}`}>
-                                                        {t.desc}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                            {t.badge && (
-                                                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black shrink-0 ${
-                                                    activo ? 'bg-[#075E54] text-white' : 'bg-white/20 text-white'
-                                                }`}>
-                                                    {t.badge}
-                                                </span>
-                                            )}
-                                        </button>
-                                    );
-                                })}
-                            </nav>
-                        </div>
-                    </div>
-
-                    {/* Resumen de Cuadre Total Hasta Hoy en el Pie de la Barra Lateral */}
-                    <div className="p-4 bg-slate-950/50 border-t border-white/15 space-y-2">
-                        <div className="flex items-center justify-between">
-                            <span className="text-[10px] font-black uppercase text-[#25D366]">
-                                ✅ Cuadrado Hasta Hoy
-                            </span>
-                            <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-[#25D366] text-[10px] font-black">
-                                100% Vendido
-                            </span>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                            <div className="bg-white/10 p-2 rounded-xl">
-                                <span className="text-[9px] uppercase text-emerald-200 font-black block">Venta Total</span>
-                                <span className="text-sm font-black text-white">
-                                    ${liquidacionFacturasConsumidorFinal.ventaTotalHastaHoy.toFixed(2)}
-                                </span>
+                            <div className="grid grid-cols-2 gap-1.5">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setVistaPuntoVenta('rutaAndres');
+                                        setSidebarAbierto(false);
+                                    }}
+                                    className={`py-2 px-2 rounded-xl text-[11px] font-black uppercase transition-all ${
+                                        vistaPuntoVenta === 'rutaAndres'
+                                            ? 'bg-[#25D366] text-[#075E54] shadow'
+                                            : 'bg-white/10 text-white hover:bg-white/20'
+                                    }`}
+                                >
+                                    🚚 Ruta Andrés
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setVistaPuntoVenta('tresPuentes');
+                                        setSidebarAbierto(false);
+                                    }}
+                                    className={`py-2 px-2 rounded-xl text-[11px] font-black uppercase transition-all ${
+                                        vistaPuntoVenta === 'tresPuentes'
+                                            ? 'bg-amber-400 text-slate-950 shadow'
+                                            : 'bg-white/10 text-white hover:bg-white/20'
+                                    }`}
+                                >
+                                    🏪 Tres Puentes
+                                </button>
                             </div>
-                            <div className="bg-white/10 p-2 rounded-xl">
-                                <span className="text-[9px] uppercase text-amber-200 font-black block">Utilidad Ganada</span>
-                                <span className="text-sm font-black text-[#25D366]">
-                                    +${liquidacionFacturasConsumidorFinal.utilidadBrutaGanadaHastaHoy.toFixed(2)}
-                                </span>
+                            <div className="flex items-center gap-1 pt-0.5">
+                                <button
+                                    type="button"
+                                    onClick={copiarLinkAdminTresPuentes}
+                                    className="flex-1 py-1.5 px-2 rounded-lg bg-indigo-500/30 hover:bg-indigo-500/50 border border-indigo-300/40 text-[10px] font-black text-indigo-100 uppercase text-center"
+                                    title="Copiar Link Independiente de Administrador para Local Tres Puentes"
+                                >
+                                    🔗 Copiar Link Admin 3 Puentes
+                                </button>
+                                <a
+                                    href="tres-puentes.html"
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="py-1.5 px-2.5 rounded-lg bg-amber-400/20 hover:bg-amber-400/40 border border-amber-300/40 text-[10px] font-black text-amber-200 uppercase"
+                                    title="Abrir Link Independiente de Administrador en otra pestaña"
+                                >
+                                    ↗
+                                </a>
                             </div>
                         </div>
-                        <p className="text-[10px] text-emerald-200/90 font-bold leading-tight">
-                            📦 {liquidacionFacturasConsumidorFinal.totalUnidadesVendidasHastaHoy} u. vendidas de {liquidacionFacturasConsumidorFinal.totalFacturasHastaHoy} facturas.
-                        </p>
+
+                        {vistaPuntoVenta === 'rutaAndres' ? (
+                            <>
+                                {/* Ruta del Día Actual */}
+                                <div className="p-3 rounded-2xl bg-white/10 border border-white/15">
+                                    <span className="text-[10px] font-black uppercase text-emerald-200 block">
+                                        🚚 Ruta de Hoy ({rutaHoy.diaSemana}):
+                                    </span>
+                                    <span className="text-xs font-black text-amber-300 block mt-0.5 leading-snug">
+                                        {rutaHoy.nombre}
+                                    </span>
+                                </div>
+
+                                {/* Lista Vertical de Pestañas de Ruta Andrés Cárdenas */}
+                                <div className="space-y-1.5">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-emerald-200 px-2 block">
+                                        Pestañas Ruta Andrés Cárdenas
+                                    </span>
+                                    <nav className="flex flex-col gap-1.5">
+                                        {tabs.map(t => {
+                                            const activo = activeTab === t.id;
+                                            return (
+                                                <button
+                                                    key={t.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setActiveTab(t.id);
+                                                        setSidebarAbierto(false);
+                                                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                    }}
+                                                    className={`w-full px-3.5 py-3 rounded-2xl text-left transition-all flex items-center justify-between gap-2 ${
+                                                        activo
+                                                            ? 'bg-[#25D366] text-[#075E54] shadow-lg font-black scale-[1.01]'
+                                                            : 'bg-white/10 text-white hover:bg-white/20 font-bold'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2.5 min-w-0">
+                                                        <Icon name={t.icon} size={18} className={activo ? 'text-[#075E54]' : 'text-emerald-200'} />
+                                                        <div className="truncate">
+                                                            <span className="text-xs sm:text-sm font-black uppercase block truncate">
+                                                                {t.label}
+                                                            </span>
+                                                            <span className={`text-[10px] block truncate ${activo ? 'text-[#075E54]/80 font-bold' : 'text-emerald-100/75'}`}>
+                                                                {t.desc}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    {t.badge && (
+                                                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black shrink-0 ${
+                                                            activo ? 'bg-[#075E54] text-white' : 'bg-white/20 text-white'
+                                                        }`}>
+                                                            {t.badge}
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </nav>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                {/* Información del Punto de Venta Local Tres Puentes */}
+                                <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-400/30">
+                                    <span className="text-[10px] font-black uppercase text-amber-300 block">
+                                        🏪 Punto de Venta Independiente:
+                                    </span>
+                                    <span className="text-xs font-black text-white block mt-0.5 leading-snug">
+                                        Local Tres Puentes • 4 Vendedores + Producto Ocasional Andrés (Al Costo)
+                                    </span>
+                                </div>
+
+                                {/* Lista Vertical de Pestañas de Local Tres Puentes */}
+                                <div className="space-y-1.5">
+                                    <span className="text-[10px] font-black uppercase tracking-wider text-amber-300 px-2 block">
+                                        Menú Admin Tres Puentes
+                                    </span>
+                                    <nav className="flex flex-col gap-1.5">
+                                        {tpTabs.map(t => {
+                                            const activo = tpSubTab === t.id;
+                                            return (
+                                                <button
+                                                    key={t.id}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setTpSubTab(t.id);
+                                                        setSidebarAbierto(false);
+                                                        window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                    }}
+                                                    className={`w-full px-3.5 py-3 rounded-2xl text-left transition-all flex items-center justify-between gap-2 ${
+                                                        activo
+                                                            ? 'bg-amber-400 text-slate-950 shadow-lg font-black scale-[1.01]'
+                                                            : 'bg-white/10 text-white hover:bg-white/20 font-bold'
+                                                    }`}
+                                                >
+                                                    <div className="flex items-center gap-2.5 min-w-0">
+                                                        <Icon name={t.icon} size={18} className={activo ? 'text-slate-950' : 'text-amber-300'} />
+                                                        <div className="truncate">
+                                                            <span className="text-xs sm:text-sm font-black uppercase block truncate">
+                                                                {t.label}
+                                                            </span>
+                                                            <span className={`text-[10px] block truncate ${activo ? 'text-slate-900 font-bold' : 'text-slate-300'}`}>
+                                                                {t.desc}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    {t.badge && (
+                                                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black shrink-0 ${
+                                                            activo ? 'bg-slate-950 text-amber-300' : 'bg-white/20 text-white'
+                                                        }`}>
+                                                            {t.badge}
+                                                        </span>
+                                                    )}
+                                                </button>
+                                            );
+                                        })}
+                                    </nav>
+                                </div>
+                            </>
+                        )}
                     </div>
+
+                    {/* Pie de la Barra Lateral según el Punto de Venta Activo */}
+                    {vistaPuntoVenta === 'rutaAndres' ? (
+                        <div className="p-4 bg-slate-950/50 border-t border-white/15 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-black uppercase text-[#25D366]">
+                                    ✅ Cuadrado Hasta Hoy
+                                </span>
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-500/20 text-[#25D366] text-[10px] font-black">
+                                    100% Vendido
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="bg-white/10 p-2 rounded-xl">
+                                    <span className="text-[9px] uppercase text-emerald-200 font-black block">Venta Total</span>
+                                    <span className="text-sm font-black text-white">
+                                        ${liquidacionFacturasConsumidorFinal.ventaTotalHastaHoy.toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className="bg-white/10 p-2 rounded-xl">
+                                    <span className="text-[9px] uppercase text-amber-200 font-black block">Utilidad Ganada</span>
+                                    <span className="text-sm font-black text-[#25D366]">
+                                        +${liquidacionFacturasConsumidorFinal.utilidadBrutaGanadaHastaHoy.toFixed(2)}
+                                    </span>
+                                </div>
+                            </div>
+                            <p className="text-[10px] text-emerald-200/90 font-bold leading-tight">
+                                📦 {liquidacionFacturasConsumidorFinal.totalUnidadesVendidasHastaHoy} u. vendidas de {liquidacionFacturasConsumidorFinal.totalFacturasHastaHoy} facturas.
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="p-4 bg-black/50 border-t border-white/15 space-y-2">
+                            <div className="flex items-center justify-between">
+                                <span className="text-[10px] font-black uppercase text-amber-400">
+                                    🏪 Resumen Tres Puentes ({tpFechaDia})
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                                <div className="bg-white/10 p-2 rounded-xl">
+                                    <span className="text-[9px] uppercase text-emerald-300 font-black block">Venta 4 Vend.</span>
+                                    <span className="text-sm font-black text-white">
+                                        ${resumenGeneralTresPuentes.diaVenta.toFixed(2)}
+                                    </span>
+                                </div>
+                                <div className="bg-white/10 p-2 rounded-xl">
+                                    <span className="text-[9px] uppercase text-amber-300 font-black block">Utilidad Día</span>
+                                    <span className="text-sm font-black text-amber-300">
+                                        +${resumenGeneralTresPuentes.diaUtilidad.toFixed(2)}
+                                    </span>
+                                </div>
+                            </div>
+                            <p className="text-[10px] text-slate-300 font-bold leading-tight">
+                                🤝 Prod. Andrés al Costo ($0 utilidad): ${resumenGeneralTresPuentes.andresTotalCobradoAlCosto.toFixed(2)}
+                            </p>
+                        </div>
+                    )}
                 </aside>
 
                 {/* ═══ CONTENEDOR DERECHO (CABECERA SUPERIOR + CONTENIDO DE LA PESTAÑA ACTIVA) ═══ */}
                 <div className="flex-1 flex flex-col min-w-0 pb-20 md:pb-8">
-                    <header className="sticky top-0 z-30 bg-[#075E54] md:bg-white text-white md:text-slate-900 shadow-md border-b border-slate-200">
+                    <header className={`sticky top-0 z-30 ${
+                        vistaPuntoVenta === 'tresPuentes' ? 'bg-slate-900 md:bg-white' : 'bg-[#075E54] md:bg-white'
+                    } text-white md:text-slate-900 shadow-md border-b border-slate-200`}>
                         <div className="max-w-7xl mx-auto px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2">
                             <div className="flex items-center gap-2.5">
                                 {/* Botón para desplegar la barra vertical lateral en celular/tablet */}
@@ -2055,33 +2866,67 @@
                                 </button>
                                 <div>
                                     <span className="text-[10px] font-black uppercase text-emerald-200 md:text-[#075E54] block">
-                                        {tabs.find(x => x.id === activeTab)?.label}
+                                        {vistaPuntoVenta === 'tresPuentes'
+                                            ? `🏪 LOCAL TRES PUENTES (ADMINISTRADOR) • ${tpTabs.find(x => x.id === tpSubTab)?.label || ''}`
+                                            : tabs.find(x => x.id === activeTab)?.label}
                                     </span>
                                     <p className="text-xs font-black text-white md:text-slate-700">
-                                        🚚 Hoy ({rutaHoy.diaSemana}): <span className="text-amber-300 md:text-emerald-700">{rutaHoy.nombre}</span>
+                                        {vistaPuntoVenta === 'tresPuentes' ? (
+                                            <span>Control Independiente de 4 Vendedores, Facturas y Producto de Andrés al Costo</span>
+                                        ) : (
+                                            <span>🚚 Hoy ({rutaHoy.diaSemana}): <span className="text-amber-300 md:text-emerald-700">{rutaHoy.nombre}</span></span>
+                                        )}
                                     </p>
                                 </div>
                             </div>
 
-                            {/* Indicadores Globales del Cuadre Hasta Hoy */}
-                            <div className="flex items-center gap-2">
-                                <div className="bg-white/10 md:bg-emerald-50 border border-white/20 md:border-emerald-200 px-3 py-1 rounded-xl text-right">
-                                    <span className="text-[9px] uppercase font-black text-emerald-200 md:text-emerald-800 block">
-                                        Venta Total Hasta Hoy (100% Facturas)
-                                    </span>
-                                    <span className="text-sm sm:text-base font-black text-[#25D366] md:text-emerald-700 leading-none">
-                                        ${liquidacionFacturasConsumidorFinal.ventaTotalHastaHoy.toFixed(2)}
-                                    </span>
+                            {/* Indicadores Globales según el Punto de Venta Activo */}
+                            {vistaPuntoVenta === 'rutaAndres' ? (
+                                <div className="flex items-center gap-2">
+                                    <div className="bg-white/10 md:bg-emerald-50 border border-white/20 md:border-emerald-200 px-3 py-1 rounded-xl text-right">
+                                        <span className="text-[9px] uppercase font-black text-emerald-200 md:text-emerald-800 block">
+                                            Venta Total Hasta Hoy (100% Facturas)
+                                        </span>
+                                        <span className="text-sm sm:text-base font-black text-[#25D366] md:text-emerald-700 leading-none">
+                                            ${liquidacionFacturasConsumidorFinal.ventaTotalHastaHoy.toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div className="bg-white/10 md:bg-amber-50 border border-white/20 md:border-amber-200 px-3 py-1 rounded-xl text-right">
+                                        <span className="text-[9px] uppercase font-black text-amber-200 md:text-amber-800 block">
+                                            Utilidad Ganada Hasta Hoy
+                                        </span>
+                                        <span className="text-sm sm:text-base font-black text-amber-300 md:text-amber-700 leading-none">
+                                            +${liquidacionFacturasConsumidorFinal.utilidadBrutaGanadaHastaHoy.toFixed(2)}
+                                        </span>
+                                    </div>
                                 </div>
-                                <div className="bg-white/10 md:bg-amber-50 border border-white/20 md:border-amber-200 px-3 py-1 rounded-xl text-right">
-                                    <span className="text-[9px] uppercase font-black text-amber-200 md:text-amber-800 block">
-                                        Utilidad Ganada Hasta Hoy
-                                    </span>
-                                    <span className="text-sm sm:text-base font-black text-amber-300 md:text-amber-700 leading-none">
-                                        +${liquidacionFacturasConsumidorFinal.utilidadBrutaGanadaHastaHoy.toFixed(2)}
-                                    </span>
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={copiarLinkAdminTresPuentes}
+                                        className="px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-black uppercase shadow"
+                                    >
+                                        🔗 Copiar Link Admin
+                                    </button>
+                                    <div className="bg-white/10 md:bg-emerald-50 border border-white/20 md:border-emerald-200 px-3 py-1 rounded-xl text-right">
+                                        <span className="text-[9px] uppercase font-black text-emerald-200 md:text-emerald-800 block">
+                                            Venta Día 3 Puentes ({tpFechaDia})
+                                        </span>
+                                        <span className="text-sm sm:text-base font-black text-[#25D366] md:text-emerald-700 leading-none">
+                                            ${resumenGeneralTresPuentes.diaVenta.toFixed(2)}
+                                        </span>
+                                    </div>
+                                    <div className="bg-white/10 md:bg-amber-50 border border-white/20 md:border-amber-200 px-3 py-1 rounded-xl text-right">
+                                        <span className="text-[9px] uppercase font-black text-amber-200 md:text-amber-800 block">
+                                            Utilidad Día 3 Puentes
+                                        </span>
+                                        <span className="text-sm sm:text-base font-black text-amber-300 md:text-amber-700 leading-none">
+                                            +${resumenGeneralTresPuentes.diaUtilidad.toFixed(2)}
+                                        </span>
+                                    </div>
                                 </div>
-                            </div>
+                            )}
                         </div>
                     </header>
 
@@ -2105,6 +2950,8 @@
 
                     {/* ═══ CONTENIDO PRINCIPAL ═══ */}
                     <main className="max-w-7xl mx-auto w-full px-3 sm:px-5 pt-4 flex-1">
+                    {vistaPuntoVenta === 'rutaAndres' && (
+                        <>
 
                     {/* ═══════════════════════════════════════════════════════════════════════════
                         PESTAÑA 1: NOTA DE VENTA SÚPER ÁGIL (IZQUIERDA) + PANTALLA ADJUNTA EN TIEMPO REAL (DERECHA)
@@ -3752,6 +4599,834 @@
                                     ))}
                                 </div>
                             </div>
+                        </div>
+                    )}
+                        </>
+                    )}
+
+                    {/* ═══════════════════════════════════════════════════════════════════════════
+                        MÓDULO INDEPENDIENTE: CONTROL ADMINISTRADOR — LOCAL DE TRES PUENTES
+                        (Link exclusivo: tres-puentes.html o ?admin=trespuentes)
+                    ═══════════════════════════════════════════════════════════════════════════ */}
+                    {vistaPuntoVenta === 'tresPuentes' && (
+                        <div className="space-y-6 fade-in">
+                            {/* Banner Superior del Administrador de Tres Puentes con Link Independiente */}
+                            <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 rounded-3xl shadow-xl border-2 border-amber-400/40 flex flex-wrap items-center justify-between gap-4">
+                                <div>
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="px-3 py-0.5 rounded-full bg-amber-400 text-slate-950 text-[11px] font-black uppercase">
+                                            🏪 CONTROL EXCLUSIVO ADMINISTRADOR
+                                        </span>
+                                        <span className="px-3 py-0.5 rounded-full bg-emerald-500/20 text-[#25D366] border border-emerald-400/30 text-[11px] font-black uppercase">
+                                            100% Independiente de Ruta Andrés Cárdenas
+                                        </span>
+                                    </div>
+                                    <h2 className="text-xl sm:text-2xl font-black mt-1">
+                                        Punto de Venta: Local de Tres Puentes
+                                    </h2>
+                                    <p className="text-xs text-slate-300 font-bold">
+                                        Facturas de Ingreso • 4 Vendedores (Retiro Mañana / Retorno Noche) • Producto Ocasional de Andrés Fuera de Factura (Al Costo Sin Utilidad)
+                                    </p>
+                                </div>
+
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={copiarLinkAdminTresPuentes}
+                                        className="px-4 py-2.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase shadow-lg flex items-center gap-1.5"
+                                    >
+                                        <span>🔗 Copiar Link Admin Tres Puentes</span>
+                                    </button>
+                                    <a
+                                        href="tres-puentes.html"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="px-4 py-2.5 rounded-2xl bg-white/10 hover:bg-white/20 border border-white/20 text-white font-black text-xs uppercase"
+                                    >
+                                        ↗ Abrir en Link Propio (tres-puentes.html)
+                                    </a>
+                                </div>
+                            </div>
+
+                            {/* Barra rápida de navegación interna de Tres Puentes */}
+                            <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5">
+                                {tpTabs.map(t => (
+                                    <button
+                                        key={t.id}
+                                        type="button"
+                                        onClick={() => setTpSubTab(t.id)}
+                                        className={`p-3.5 rounded-2xl border-2 text-left transition-all flex items-center justify-between gap-2 ${
+                                            tpSubTab === t.id
+                                                ? 'bg-slate-900 text-white border-amber-400 shadow-lg'
+                                                : 'bg-white text-slate-800 border-slate-200 hover:border-slate-400'
+                                        }`}
+                                    >
+                                        <div className="min-w-0">
+                                            <span className={`text-xs font-black uppercase block truncate ${tpSubTab === t.id ? 'text-amber-400' : 'text-slate-900'}`}>
+                                                {t.label}
+                                            </span>
+                                            <span className={`text-[10px] font-bold block truncate ${tpSubTab === t.id ? 'text-slate-300' : 'text-slate-500'}`}>
+                                                {t.desc}
+                                            </span>
+                                        </div>
+                                        {t.badge && (
+                                            <span className={`px-2 py-0.5 rounded-lg text-xs font-black shrink-0 ${
+                                                tpSubTab === t.id ? 'bg-amber-400 text-slate-950' : 'bg-slate-100 text-slate-800'
+                                            }`}>
+                                                {t.badge}
+                                            </span>
+                                        )}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* ═══════════════════════════════════════════════════════════════════════════
+                                SUB-PESTAÑA 1: LOS 4 VENDEDORES (NOMBRES MANUALES + RETIRO MAÑANA + RETORNO NOCHE)
+                            ═══════════════════════════════════════════════════════════════════════════ */}
+                            {tpSubTab === 'vendedores' && (
+                                <div className="space-y-5">
+                                    {/* Barra de Fecha, Asignación Manual de Nombres de los 4 Vendedores y Totales del Día */}
+                                    <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-md space-y-4">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            <div>
+                                                <span className="text-xs font-black uppercase text-emerald-700 block">
+                                                    🌅 CONTROL DIARIO DE SALIDA (MAÑANA) Y RETORNO (NOCHE)
+                                                </span>
+                                                <h3 className="text-xl sm:text-2xl font-black text-slate-900">
+                                                    Los 4 Vendedores de Tres Puentes • Fecha: {tpFechaDia}
+                                                </h3>
+                                            </div>
+
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <div className="flex items-center gap-2 bg-slate-100 px-3 py-2 rounded-2xl border border-slate-300">
+                                                    <span className="text-xs font-black uppercase text-slate-600">Fecha:</span>
+                                                    <input
+                                                        type="date"
+                                                        value={tpFechaDia}
+                                                        onChange={(e) => setTpFechaDia(e.target.value)}
+                                                        className="bg-white px-3 py-1.5 rounded-xl font-black text-sm outline-none border border-slate-300"
+                                                    />
+                                                </div>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setTpEditandoNombres(prev => !prev)}
+                                                    className="px-4 py-2.5 rounded-2xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 border border-indigo-300 font-black text-xs uppercase"
+                                                >
+                                                    ✏️ {tpEditandoNombres ? 'Ocultar Edición de Nombres' : 'Asignar Nombres a los 4 Vendedores'}
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    onClick={guardarTodosLosVendedoresDiaTP}
+                                                    className="px-5 py-2.5 rounded-2xl bg-[#25D366] hover:bg-[#20bd5a] text-[#075E54] font-black text-xs uppercase shadow-md"
+                                                >
+                                                    💾 Guardar Todo el Día ({tpFechaDia})
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        {/* Panel desplegable para asignar manualmente el nombre de cada uno de los 4 vendedores */}
+                                        {tpEditandoNombres && (
+                                            <div className="p-4 rounded-2xl bg-indigo-50/80 border-2 border-indigo-300 space-y-3">
+                                                <div className="flex items-center justify-between">
+                                                    <span className="text-xs font-black uppercase text-indigo-950">
+                                                        👤 Asignar Nombre Manualmente a cada uno de los 4 Vendedores:
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={guardarNombresVendedoresTP}
+                                                        className="px-4 py-1.5 rounded-xl bg-indigo-600 text-white font-black text-xs uppercase shadow"
+                                                    >
+                                                        ✓ Guardar Nombres
+                                                    </button>
+                                                </div>
+                                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                                                    {tpVendedores.map((v, i) => (
+                                                        <div key={v.id} className="bg-white p-3 rounded-xl border border-indigo-200">
+                                                            <label className="text-[10px] font-black uppercase text-slate-400 block mb-1">
+                                                                Vendedor #{i + 1}:
+                                                            </label>
+                                                            <input
+                                                                type="text"
+                                                                value={v.nombre}
+                                                                onChange={(e) => cambiarNombreVendedorTP(v.id, e.target.value)}
+                                                                placeholder={`Nombre Vendedor ${i + 1}`}
+                                                                className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-300 font-black text-sm text-slate-900 outline-none focus:border-indigo-600"
+                                                            />
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Totales Consolidados del Día de los 4 Vendedores */}
+                                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 bg-slate-900 text-white p-4 rounded-2xl">
+                                            <div className="bg-white/10 p-3 rounded-xl">
+                                                <span className="text-[10px] font-black uppercase text-sky-300 block">🌅 Total Retiro Mañana</span>
+                                                <span className="text-2xl font-black text-white">{resumenGeneralTresPuentes.diaManana} u.</span>
+                                            </div>
+                                            <div className="bg-white/10 p-3 rounded-xl">
+                                                <span className="text-[10px] font-black uppercase text-amber-300 block">🌙 Total Retorno Noche</span>
+                                                <span className="text-2xl font-black text-amber-300">{resumenGeneralTresPuentes.diaNoche} u.</span>
+                                            </div>
+                                            <div className="bg-white/10 p-3 rounded-xl">
+                                                <span className="text-[10px] font-black uppercase text-emerald-300 block">📦 Total Vendido Neto</span>
+                                                <span className="text-2xl font-black text-white">{resumenGeneralTresPuentes.diaVendido} u.</span>
+                                            </div>
+                                            <div className="bg-emerald-950/90 border border-emerald-500/40 p-3 rounded-xl">
+                                                <span className="text-[10px] font-black uppercase text-emerald-300 block">💵 Total Venta Cobrada</span>
+                                                <span className="text-2xl font-black text-[#25D366]">${resumenGeneralTresPuentes.diaVenta.toFixed(2)}</span>
+                                            </div>
+                                            <div className="bg-amber-950/80 border border-amber-400/40 p-3 rounded-xl">
+                                                <span className="text-[10px] font-black uppercase text-amber-300 block">📈 Utilidad de Hoy (4 Vend.)</span>
+                                                <span className="text-2xl font-black text-amber-300">+${resumenGeneralTresPuentes.diaUtilidad.toFixed(2)}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* CUADRÍCULA DE LOS 4 VENDEDORES (CADA UNO CON RETIRO MAÑANA Y RETORNO NOCHE DE LOS 3 PRODUCTOS) */}
+                                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                                        {resumenGeneralTresPuentes.resumenVendedoresHoy.map((vend, idx) => (
+                                            <div key={vend.id} className="bg-white rounded-3xl border-2 border-slate-200 shadow-lg overflow-hidden flex flex-col justify-between">
+                                                <div>
+                                                    {/* Cabecera del Vendedor con edición directa de nombre */}
+                                                    <div className={`bg-gradient-to-r ${vend.headerBg} text-white p-4 flex flex-wrap items-center justify-between gap-2`}>
+                                                        <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                                                            <span className="w-8 h-8 rounded-xl bg-white/20 font-black text-sm flex items-center justify-center shrink-0">
+                                                                #{idx + 1}
+                                                            </span>
+                                                            <div className="flex-1">
+                                                                <span className="text-[10px] font-black uppercase text-white/80 block">
+                                                                    Nombre del Vendedor (Editable):
+                                                                </span>
+                                                                <input
+                                                                    type="text"
+                                                                    value={vend.nombre}
+                                                                    onChange={(e) => cambiarNombreVendedorTP(vend.id, e.target.value)}
+                                                                    onBlur={() => guardarNombresVendedoresTP()}
+                                                                    className="w-full bg-white/15 hover:bg-white/25 focus:bg-white focus:text-slate-900 text-white font-black text-base sm:text-lg px-2.5 py-1 rounded-xl outline-none transition-all"
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="text-right">
+                                                            <span className="text-[10px] font-black uppercase text-emerald-200 block">
+                                                                Total a Entregar ({vend.totalVendido} u.)
+                                                            </span>
+                                                            <span className="text-2xl sm:text-3xl font-black text-[#25D366] leading-none">
+                                                                ${vend.totalVenta.toFixed(2)}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Tabla Ágil de los 3 Productos para este Vendedor: Retiro Mañana vs Retorno Noche */}
+                                                    <div className="p-4 space-y-3">
+                                                        {vend.porProd.map(prod => (
+                                                            <div key={prod.id} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2.5">
+                                                                <div className="flex items-center justify-between">
+                                                                    <div className="flex items-center gap-1.5">
+                                                                        <span className="text-xl">{prod.emoji}</span>
+                                                                        <span className="font-black text-sm text-slate-900">{prod.nombreCorto}</span>
+                                                                        <span className="text-xs font-bold text-slate-500">
+                                                                            (Compra ${prod.costo.toFixed(2)} • Venta ${prod.pvd.toFixed(2)})
+                                                                        </span>
+                                                                    </div>
+                                                                    <div className="text-right">
+                                                                        <span className="text-xs font-black text-emerald-800 bg-emerald-100 px-2.5 py-1 rounded-lg">
+                                                                            Vendido: {prod.vendido} u. = ${prod.montoVenta.toFixed(2)}
+                                                                        </span>
+                                                                    </div>
+                                                                </div>
+
+                                                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                                                    {/* 🌅 RETIRO EN LA MAÑANA */}
+                                                                    <div className="p-2.5 rounded-xl bg-sky-50/80 border border-sky-200">
+                                                                        <label className="text-[10px] font-black uppercase text-sky-900 block mb-1">
+                                                                            🌅 Retira en la Mañana (Salida):
+                                                                        </label>
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => modificarCantidadVendedorTP(vend.id, `m_${prod.id}`, -1, true)}
+                                                                                className="w-9 h-10 rounded-lg bg-white border border-slate-300 font-black text-lg text-rose-600"
+                                                                            >
+                                                                                -
+                                                                            </button>
+                                                                            <input
+                                                                                type="number"
+                                                                                inputMode="numeric"
+                                                                                placeholder="0"
+                                                                                value={prod.manana === 0 ? '' : prod.manana}
+                                                                                onChange={(e) => modificarCantidadVendedorTP(vend.id, `m_${prod.id}`, e.target.value, false)}
+                                                                                className="w-full h-10 text-center font-black text-xl bg-white border-2 border-sky-400 rounded-lg outline-none"
+                                                                            />
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => modificarCantidadVendedorTP(vend.id, `m_${prod.id}`, 1, true)}
+                                                                                className="w-9 h-10 rounded-lg bg-sky-600 text-white font-black text-lg"
+                                                                            >
+                                                                                +
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="flex flex-wrap gap-1 mt-1.5">
+                                                                            {[5, 10, 20, 50].map(d => (
+                                                                                <button
+                                                                                    key={d}
+                                                                                    type="button"
+                                                                                    onClick={() => modificarCantidadVendedorTP(vend.id, `m_${prod.id}`, d, true)}
+                                                                                    className="px-2 py-0.5 rounded bg-white border border-sky-300 text-[10px] font-black text-sky-900"
+                                                                                >
+                                                                                    +{d}
+                                                                                </button>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+
+                                                                    {/* 🌙 RETORNO EN LA NOCHE */}
+                                                                    <div className="p-2.5 rounded-xl bg-amber-50/80 border border-amber-200">
+                                                                        <label className="text-[10px] font-black uppercase text-amber-900 block mb-1">
+                                                                            🌙 Retorna en la Noche (Sobrante):
+                                                                        </label>
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => modificarCantidadVendedorTP(vend.id, `n_${prod.id}`, -1, true)}
+                                                                                className="w-9 h-10 rounded-lg bg-white border border-slate-300 font-black text-lg text-rose-600"
+                                                                            >
+                                                                                -
+                                                                            </button>
+                                                                            <input
+                                                                                type="number"
+                                                                                inputMode="numeric"
+                                                                                placeholder="0"
+                                                                                value={prod.noche === 0 ? '' : prod.noche}
+                                                                                onChange={(e) => modificarCantidadVendedorTP(vend.id, `n_${prod.id}`, e.target.value, false)}
+                                                                                className="w-full h-10 text-center font-black text-xl bg-white border-2 border-amber-400 rounded-lg outline-none"
+                                                                            />
+                                                                            <button
+                                                                                type="button"
+                                                                                onClick={() => modificarCantidadVendedorTP(vend.id, `n_${prod.id}`, 1, true)}
+                                                                                className="w-9 h-10 rounded-lg bg-amber-600 text-white font-black text-lg"
+                                                                            >
+                                                                                +
+                                                                            </button>
+                                                                        </div>
+                                                                        <div className="flex flex-wrap gap-1 mt-1.5">
+                                                                            {[1, 5, 10].map(d => (
+                                                                                <button
+                                                                                    key={d}
+                                                                                    type="button"
+                                                                                    onClick={() => modificarCantidadVendedorTP(vend.id, `n_${prod.id}`, d, true)}
+                                                                                    className="px-2 py-0.5 rounded bg-white border border-amber-300 text-[10px] font-black text-amber-900"
+                                                                                >
+                                                                                    +{d}
+                                                                                </button>
+                                                                            ))}
+                                                                        </div>
+                                                                    </div>
+                                                                </div>
+                                                            </div>
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                {/* Pie de la Tarjeta del Vendedor con Resumen y Botón de Guardar */}
+                                                <div className="p-4 bg-slate-900 text-white flex flex-wrap items-center justify-between gap-2">
+                                                    <div className="text-xs font-bold space-x-2">
+                                                        <span className="text-sky-300">🌅 Salida: <strong>{vend.totalManana} u.</strong></span>
+                                                        <span>•</span>
+                                                        <span className="text-amber-300">🌙 Retorno: <strong>{vend.totalNoche} u.</strong></span>
+                                                        <span>•</span>
+                                                        <span className="text-emerald-300">Utilidad: <strong>+${vend.totalUtilidad.toFixed(2)}</strong></span>
+                                                    </div>
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => guardarJornadaVendedorTP(vend.id, false)}
+                                                        className="px-4 py-2 rounded-xl bg-[#25D366] hover:bg-[#20bd5a] text-[#075E54] font-black text-xs uppercase shadow"
+                                                    >
+                                                        💾 Guardar {vend.nombre}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ═══════════════════════════════════════════════════════════════════════════
+                                SUB-PESTAÑA 2: PRODUCTO OCASIONAL DE ANDRÉS CÁRDENAS (FUERA DE FACTURA — AL COSTO SIN UTILIDAD)
+                            ═══════════════════════════════════════════════════════════════════════════ */}
+                            {tpSubTab === 'andresCosto' && (
+                                <div className="space-y-5">
+                                    <div className="bg-white rounded-3xl border-2 border-amber-500/40 shadow-xl overflow-hidden">
+                                        <div className="bg-gradient-to-r from-amber-700 via-orange-700 to-slate-900 text-white p-5 flex flex-wrap items-center justify-between gap-3">
+                                            <div>
+                                                <span className="inline-block px-3 py-0.5 rounded-full bg-amber-300 text-slate-950 text-[10px] font-black uppercase">
+                                                    🤝 PRODUCTO FUERA DE FACTURA • COMERCIALIZADO AL COSTO ($0.00 UTILIDAD)
+                                                </span>
+                                                <h3 className="text-xl sm:text-2xl font-black mt-1">
+                                                    Producto Dejado Ocasionalmente por Andrés Cárdenas en Tres Puentes
+                                                </h3>
+                                                <p className="text-xs text-amber-100 font-bold">
+                                                    Se comercializa estrictamente al costo de compra ($0.31 Vaso 165g • $0.70 Vaso 340g • $0.89 Botella 1/2L) sin generar utilidad para el local.
+                                                </p>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-5 space-y-4">
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                <div>
+                                                    <label className="text-xs font-black uppercase text-slate-600 block mb-1">Fecha:</label>
+                                                    <input
+                                                        type="date"
+                                                        value={formAndresTP.fecha}
+                                                        onChange={(e) => setFormAndresTP(prev => ({ ...prev, fecha: e.target.value }))}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-2 border-slate-300 font-black"
+                                                    />
+                                                </div>
+                                                <div className="sm:col-span-2">
+                                                    <label className="text-xs font-black uppercase text-slate-600 block mb-1">Detalle / Observación:</label>
+                                                    <input
+                                                        type="text"
+                                                        value={formAndresTP.nota}
+                                                        onChange={(e) => setFormAndresTP(prev => ({ ...prev, nota: e.target.value }))}
+                                                        placeholder="Ej: Producto dejado por Andrés fuera de factura para vender al costo"
+                                                        className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-2 border-slate-300 font-black"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                                {calculoFormAndresAlCosto.porProd.map(p => (
+                                                    <div key={p.id} className="p-4 rounded-2xl bg-amber-50/60 border-2 border-amber-200 space-y-3">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="font-black text-base text-slate-900">{p.emoji} {p.nombreCorto}</span>
+                                                            <span className="px-2.5 py-0.5 rounded-lg bg-amber-200 text-amber-950 text-xs font-black">
+                                                                Al Costo: ${p.costo.toFixed(2)}
+                                                            </span>
+                                                        </div>
+
+                                                        <div className="grid grid-cols-2 gap-2">
+                                                            <div>
+                                                                <label className="text-[10px] font-black uppercase text-slate-600 block mb-1">
+                                                                    🌅 Cantidad Dejada:
+                                                                </label>
+                                                                <input
+                                                                    type="number"
+                                                                    inputMode="numeric"
+                                                                    placeholder="0"
+                                                                    value={formAndresTP[`m_${p.id}`] === 0 ? '' : formAndresTP[`m_${p.id}`]}
+                                                                    onChange={(e) => setFormAndresTP(prev => ({ ...prev, [`m_${p.id}`]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                                                                    className="w-full px-3 py-2.5 rounded-xl bg-white border-2 border-amber-400 font-black text-xl text-center"
+                                                                />
+                                                            </div>
+                                                            <div>
+                                                                <label className="text-[10px] font-black uppercase text-slate-600 block mb-1">
+                                                                    🌙 Retorno Noche:
+                                                                </label>
+                                                                <input
+                                                                    type="number"
+                                                                    inputMode="numeric"
+                                                                    placeholder="0"
+                                                                    value={formAndresTP[`n_${p.id}`] === 0 ? '' : formAndresTP[`n_${p.id}`]}
+                                                                    onChange={(e) => setFormAndresTP(prev => ({ ...prev, [`n_${p.id}`]: Math.max(0, parseInt(e.target.value) || 0) }))}
+                                                                    className="w-full px-3 py-2.5 rounded-xl bg-white border-2 border-slate-300 font-black text-xl text-center"
+                                                                />
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="pt-2 border-t border-amber-200 flex items-center justify-between text-xs font-black">
+                                                            <span className="text-slate-600">Vendido al Costo: {p.vendidoCosto} u.</span>
+                                                            <span className="text-amber-900 text-sm">${p.subtotalCosto.toFixed(2)} (Utilidad $0)</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <div className="bg-slate-900 text-white p-5 rounded-3xl flex flex-wrap items-center justify-between gap-4">
+                                                <div>
+                                                    <span className="text-xs font-black uppercase text-amber-300 block">
+                                                        Total Comercializado al Costo ({calculoFormAndresAlCosto.totalVendidoUnids} u. vendidas de {calculoFormAndresAlCosto.totalDejadoUnids} u. dejadas)
+                                                    </span>
+                                                    <div className="flex items-baseline gap-3 mt-1">
+                                                        <span className="text-3xl sm:text-4xl font-black text-[#25D366]">
+                                                            ${calculoFormAndresAlCosto.totalCobradoAlCosto.toFixed(2)}
+                                                        </span>
+                                                        <span className="px-3 py-1 rounded-full bg-white/15 text-amber-300 text-xs font-black uppercase">
+                                                            Utilidad: $0.00 (Sin Utilidad)
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                                <button
+                                                    type="button"
+                                                    onClick={guardarEntregaAndresAlCosto}
+                                                    className="px-7 py-4 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-sm uppercase tracking-wider shadow-lg"
+                                                >
+                                                    {editandoAndresId ? 'ACTUALIZAR REGISTRO AL COSTO' : 'GUARDAR PRODUCTO DE ANDRÉS AL COSTO'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Historial de entregas ocasionales de Andrés fuera de factura */}
+                                    <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <h4 className="text-sm font-black uppercase text-slate-800">
+                                                Historial de Producto Dejado por Andrés Fuera de Factura ({tpEntregasAndres.length})
+                                            </h4>
+                                            <span className="text-sm font-black text-amber-800">
+                                                Total Recaudado al Costo: ${resumenGeneralTresPuentes.andresTotalCobradoAlCosto.toFixed(2)} • Utilidad: $0.00
+                                            </span>
+                                        </div>
+
+                                        {tpEntregasAndres.length === 0 ? (
+                                            <p className="text-xs text-slate-400 font-bold py-6 text-center">
+                                                No hay registros de producto ocasional fuera de factura todavía.
+                                            </p>
+                                        ) : (
+                                            <div className="space-y-2.5">
+                                                {[...tpEntregasAndres].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '')).map(ent => (
+                                                    <div key={ent.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                                                        <div>
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="font-black text-sm text-slate-900">{ent.fecha} • {ent.nota}</span>
+                                                                <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 text-[10px] font-black uppercase">
+                                                                    AL COSTO • UTILIDAD $0.00
+                                                                </span>
+                                                            </div>
+                                                            <p className="text-xs font-bold text-slate-500 mt-0.5">
+                                                                Dejado: {ent.totalDejadoUnids} u. (🥛 {ent.m_p1} | 🥤 {ent.m_p2} | 🍶 {ent.m_p3}) • Retorno Noche: {ent.totalRetornoUnids} u. • Vendido al Costo: <strong>{ent.totalVendidoUnids} u.</strong>
+                                                            </p>
+                                                        </div>
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="text-right mr-2">
+                                                                <span className="text-[10px] font-black uppercase text-slate-400 block">Valor al Costo</span>
+                                                                <span className="text-lg font-black text-emerald-700">${Number(ent.totalCobradoAlCosto || 0).toFixed(2)}</span>
+                                                            </div>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setEditandoAndresId(ent.id);
+                                                                    setFormAndresTP({
+                                                                        fecha: ent.fecha || today,
+                                                                        nota: ent.nota || '',
+                                                                        m_p1: ent.m_p1 || 0,
+                                                                        m_p2: ent.m_p2 || 0,
+                                                                        m_p3: ent.m_p3 || 0,
+                                                                        n_p1: ent.n_p1 || 0,
+                                                                        n_p2: ent.n_p2 || 0,
+                                                                        n_p3: ent.n_p3 || 0
+                                                                    });
+                                                                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                                                                }}
+                                                                className="px-3 py-1.5 rounded-xl bg-amber-100 text-amber-900 text-xs font-black"
+                                                            >
+                                                                Editar / Retorno Noche
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => eliminarEntregaAndresTP(ent.id)}
+                                                                className="px-2.5 py-1.5 rounded-xl bg-rose-100 text-rose-700 text-xs font-black"
+                                                            >
+                                                                ✕
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ═══════════════════════════════════════════════════════════════════════════
+                                SUB-PESTAÑA 3: FACTURAS DE INGRESO — LOCAL TRES PUENTES
+                            ═══════════════════════════════════════════════════════════════════════════ */}
+                            {tpSubTab === 'facturasTP' && (
+                                <div className="space-y-5">
+                                    <div className="bg-white rounded-3xl border-2 border-indigo-500/30 shadow-xl overflow-hidden">
+                                        <div className="bg-gradient-to-r from-indigo-900 to-slate-900 text-white p-5 flex flex-wrap items-center justify-between gap-3">
+                                            <div>
+                                                <span className="text-xs font-black uppercase text-indigo-300 block">
+                                                    📄 REGISTRO DE FACTURAS DE INGRESO • LOCAL TRES PUENTES
+                                                </span>
+                                                <h3 className="text-xl sm:text-2xl font-black">
+                                                    Ingresar Factura para Local de Tres Puentes (Mismos 3 Ítems y Precios)
+                                                </h3>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    const itemsRef = crearItemsFacturaVacios(true);
+                                                    const calc = recalcularTotalesFactura(itemsRef);
+                                                    setTpFormFactura(prev => ({ ...prev, ...calc }));
+                                                }}
+                                                className="px-4 py-2 rounded-xl bg-indigo-500/30 hover:bg-indigo-500/50 border border-indigo-400 text-xs font-black uppercase"
+                                            >
+                                                ⚡ Cargar Cantidades Tipo (4080 / 1740 / 63)
+                                            </button>
+                                        </div>
+
+                                        <div className="p-5 space-y-4">
+                                            <label className="cursor-pointer p-4 rounded-2xl border-2 border-dashed border-indigo-400 bg-indigo-50/70 hover:bg-indigo-100/70 transition-all flex items-center gap-3">
+                                                <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shrink-0 font-black text-xl">
+                                                    PDF
+                                                </div>
+                                                <div className="flex-1">
+                                                    <span className="text-sm font-black text-indigo-950 block">
+                                                        {tpLeyendoPdf ? '⏳ Extrayendo datos del PDF...' : (tpFormFactura.nombreArchivo ? `✓ ${tpFormFactura.nombreArchivo}` : 'Subir PDF de Factura de Ingreso (Tres Puentes)')}
+                                                    </span>
+                                                    <span className="text-xs font-bold text-indigo-700">
+                                                        Copia automáticamente número de factura, fecha, cantidades y valores
+                                                    </span>
+                                                </div>
+                                                <input type="file" accept=".pdf,image/*" onChange={manejarSubidaPdfFacturaTP} className="hidden" />
+                                            </label>
+
+                                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                                <div>
+                                                    <label className="text-xs font-black uppercase text-slate-600 block mb-1">Fecha de Factura:</label>
+                                                    <input
+                                                        type="date"
+                                                        value={tpFormFactura.fecha}
+                                                        onChange={(e) => setTpFormFactura(prev => ({ ...prev, fecha: e.target.value }))}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-2 border-slate-300 font-black"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-black uppercase text-slate-600 block mb-1">Nº de Factura:</label>
+                                                    <input
+                                                        type="text"
+                                                        placeholder="003-102-000005913"
+                                                        value={tpFormFactura.numFact}
+                                                        onChange={(e) => setTpFormFactura(prev => ({ ...prev, numFact: e.target.value }))}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-slate-50 border-2 border-slate-300 font-black"
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-xs font-black uppercase text-slate-600 block mb-1">Valor Total Factura ($):</label>
+                                                    <input
+                                                        type="number"
+                                                        step="0.01"
+                                                        value={tpFormFactura.monto || ''}
+                                                        placeholder="0.00"
+                                                        onChange={(e) => {
+                                                            const m = parseFloat(e.target.value) || 0;
+                                                            const sub = parseFloat((m / 1.15).toFixed(2));
+                                                            const iva = parseFloat((m - sub).toFixed(2));
+                                                            setTpFormFactura(prev => ({ ...prev, monto: m, subtotal: sub, iva15: iva }));
+                                                        }}
+                                                        className="w-full px-4 py-3 rounded-2xl bg-indigo-50 border-2 border-indigo-400 font-black text-xl text-indigo-900"
+                                                    />
+                                                </div>
+                                            </div>
+
+                                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                                                {tpFormFactura.items.map(it => (
+                                                    <div key={it.id} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                                                        <div className="flex items-center justify-between">
+                                                            <span className="font-black text-sm text-slate-900">{it.nombreCorto}</span>
+                                                            <span className="text-xs font-bold text-slate-500">Costo: ${Number(it.costo).toFixed(2)} • PVD: ${Number(it.pvd).toFixed(2)}</span>
+                                                        </div>
+                                                        <input
+                                                            type="number"
+                                                            inputMode="numeric"
+                                                            placeholder="Cantidad"
+                                                            value={it.q === 0 ? '' : it.q}
+                                                            onChange={(e) => cambiarCantFacturaTP(it.id, e.target.value)}
+                                                            className="w-full px-3 py-2.5 rounded-xl bg-white border-2 border-slate-300 font-black text-xl text-center"
+                                                        />
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            <div className="flex justify-end">
+                                                <button
+                                                    type="button"
+                                                    onClick={guardarFacturaIngresoTP}
+                                                    className="px-7 py-3.5 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-black text-sm uppercase shadow-lg"
+                                                >
+                                                    GUARDAR FACTURA DE INGRESO (TRES PUENTES)
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Filtro por Rango de Fechas y Suma de Facturas de Tres Puentes */}
+                                    <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-4">
+                                        <div className="flex flex-wrap items-center justify-between gap-3">
+                                            <h4 className="text-base font-black uppercase text-slate-800">
+                                                Facturas Ingresadas en Tres Puentes ({resumenGeneralTresPuentes.facturasEnRango.length})
+                                            </h4>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <input
+                                                    type="date"
+                                                    value={tpFechaFacDesde}
+                                                    onChange={(e) => setTpFechaFacDesde(e.target.value)}
+                                                    className="px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-300 font-black text-xs"
+                                                />
+                                                <span className="text-xs font-black text-slate-400">a</span>
+                                                <input
+                                                    type="date"
+                                                    value={tpFechaFacHasta}
+                                                    onChange={(e) => setTpFechaFacHasta(e.target.value)}
+                                                    className="px-3 py-1.5 rounded-xl bg-slate-100 border border-slate-300 font-black text-xs"
+                                                />
+                                                <span className="px-3.5 py-1.5 rounded-xl bg-indigo-900 text-white font-black text-xs">
+                                                    Suma Total Facturas: ${resumenGeneralTresPuentes.sumaFacturasRango.toFixed(2)}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        {resumenGeneralTresPuentes.facturasEnRango.length === 0 ? (
+                                            <p className="text-xs text-slate-400 font-bold py-6 text-center">
+                                                No hay facturas de ingreso registradas en Local Tres Puentes en este rango.
+                                            </p>
+                                        ) : (
+                                            <div className="space-y-2.5">
+                                                {resumenGeneralTresPuentes.facturasEnRango.map(fac => {
+                                                    const u = extraerUnidadesDeFactura(fac);
+                                                    return (
+                                                        <div key={fac.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2">
+                                                            <div>
+                                                                <span className="font-black text-base text-slate-900">Factura #{fac.numFact}</span>
+                                                                <span className="text-xs font-bold text-slate-500 block">
+                                                                    Fecha: {fac.fecha} • 🥛 {u.p1} u. | 🥤 {u.p2} u. | 🍶 {u.p3} u.
+                                                                </span>
+                                                            </div>
+                                                            <div className="flex items-center gap-3">
+                                                                <span className="text-lg font-black text-indigo-900">${Number(fac.monto || 0).toFixed(2)}</span>
+                                                                {fac.archivo && (
+                                                                    <button
+                                                                        type="button"
+                                                                        onClick={() => abrirPdfEnPestana(fac.archivo)}
+                                                                        className="px-3 py-1.5 rounded-xl bg-slate-200 text-slate-800 text-xs font-black"
+                                                                    >
+                                                                        📄 PDF
+                                                                    </button>
+                                                                )}
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => eliminarFacturaTP(fac.id)}
+                                                                    className="px-2.5 py-1.5 rounded-xl bg-rose-100 text-rose-700 text-xs font-black"
+                                                                >
+                                                                    ✕
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ═══════════════════════════════════════════════════════════════════════════
+                                SUB-PESTAÑA 4: RESUMEN DE BODEGA / STOCK, CAJA Y UTILIDAD DEL LOCAL TRES PUENTES
+                            ═══════════════════════════════════════════════════════════════════════════ */}
+                            {tpSubTab === 'resumenTP' && (
+                                <div className="space-y-5">
+                                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                                        <div className="bg-white p-5 rounded-3xl border-2 border-emerald-500/30 shadow">
+                                            <span className="text-[10px] font-black uppercase text-emerald-700 block">Venta Acumulada (4 Vendedores)</span>
+                                            <span className="text-3xl font-black text-slate-900 block mt-1">
+                                                ${resumenGeneralTresPuentes.ventaTotalHistoricaVendedores.toFixed(2)}
+                                            </span>
+                                            <span className="text-xs font-bold text-slate-500">
+                                                Costo: ${resumenGeneralTresPuentes.costoTotalHistoricoVendedores.toFixed(2)}
+                                            </span>
+                                        </div>
+
+                                        <div className="bg-white p-5 rounded-3xl border-2 border-amber-500/30 shadow">
+                                            <span className="text-[10px] font-black uppercase text-amber-700 block">Utilidad Real Tres Puentes</span>
+                                            <span className="text-3xl font-black text-emerald-700 block mt-1">
+                                                +${resumenGeneralTresPuentes.utilidadTotalHistoricaVendedores.toFixed(2)}
+                                            </span>
+                                            <span className="text-xs font-bold text-slate-500">
+                                                Generada por los 4 vendedores
+                                            </span>
+                                        </div>
+
+                                        <div className="bg-white p-5 rounded-3xl border-2 border-indigo-500/30 shadow">
+                                            <span className="text-[10px] font-black uppercase text-indigo-700 block">Total Facturas Tres Puentes</span>
+                                            <span className="text-3xl font-black text-indigo-900 block mt-1">
+                                                ${resumenGeneralTresPuentes.sumaFacturasRango.toFixed(2)}
+                                            </span>
+                                            <span className="text-xs font-bold text-slate-500">
+                                                {tpFacturas.length} facturas registradas
+                                            </span>
+                                        </div>
+
+                                        <div className="bg-amber-50 p-5 rounded-3xl border-2 border-amber-400 shadow">
+                                            <span className="text-[10px] font-black uppercase text-amber-900 block">Prod. Andrés al Costo (Sin Utilidad)</span>
+                                            <span className="text-3xl font-black text-amber-900 block mt-1">
+                                                ${resumenGeneralTresPuentes.andresTotalCobradoAlCosto.toFixed(2)}
+                                            </span>
+                                            <span className="text-xs font-black text-amber-800">
+                                                {resumenGeneralTresPuentes.andresTotalUnidadesVendidasCosto} u. vendidas • Utilidad: $0.00
+                                            </span>
+                                        </div>
+                                    </div>
+
+                                    {/* Balance de Stock en Bodega Tres Puentes por Producto */}
+                                    <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+                                        <h4 className="text-sm font-black uppercase text-slate-800">
+                                            📦 Control de Inventario en Local Tres Puentes (Facturas Ingreso vs Ventas de los 4 Vendedores)
+                                        </h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                            {PRODUCTOS_POLACA.map(p => (
+                                                <div key={p.id} className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-1.5">
+                                                    <span className="font-black text-base text-slate-900 block">{p.emoji} {p.nombreCorto}</span>
+                                                    <div className="flex justify-between text-xs font-bold text-slate-600">
+                                                        <span>(+) Ingresado por Facturas:</span>
+                                                        <span className="font-black text-slate-900">{resumenGeneralTresPuentes.stockFacturadoTotal[p.id]} u.</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-xs font-bold text-slate-600">
+                                                        <span>(-) Vendido por 4 Vendedores:</span>
+                                                        <span className="font-black text-emerald-700">{resumenGeneralTresPuentes.vendidoVendedoresHist[p.id]} u.</span>
+                                                    </div>
+                                                    <div className="flex justify-between text-xs font-black pt-1.5 border-t border-slate-200">
+                                                        <span>(=) Saldo en Bodega 3 Puentes:</span>
+                                                        <span className="text-indigo-900 text-sm">{resumenGeneralTresPuentes.stockDisponibleBodegaTP[p.id]} u.</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    {/* Historial de Cierres Diarios de los 4 Vendedores */}
+                                    <div className="bg-white p-5 rounded-3xl border border-slate-200 shadow-sm space-y-3">
+                                        <h4 className="text-sm font-black uppercase text-slate-800">
+                                            📋 Historial de Movimientos Diarios de los 4 Vendedores ({tpJornadas.length})
+                                        </h4>
+                                        {tpJornadas.length === 0 ? (
+                                            <p className="text-xs text-slate-400 font-bold py-6 text-center">
+                                                Aún no hay jornadas guardadas de los 4 vendedores.
+                                            </p>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                {[...tpJornadas].sort((a, b) => (b.fecha || '').localeCompare(a.fecha || '')).map(j => (
+                                                    <div key={j.id} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+                                                        <div>
+                                                            <span className="font-black text-sm text-slate-900">{j.fecha} • {j.vendedorNombre}</span>
+                                                            <span className="block font-bold text-slate-500">
+                                                                🌅 Retiro Mañana: {j.totalManana} u. | 🌙 Retorno Noche: {j.totalNoche} u. | ✅ Vendido: <strong>{j.totalVendido} u.</strong>
+                                                            </span>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <span className="text-base font-black text-emerald-700 block">${Number(j.totalVenta || 0).toFixed(2)}</span>
+                                                            <span className="text-[11px] font-black text-amber-700">Utilidad: +${Number(j.totalUtilidad || 0).toFixed(2)}</span>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     )}
                     </main>

@@ -1,7 +1,8 @@
-const CACHE_NAME = 'austropolaca-control-v9';
+const CACHE_NAME = 'austropolaca-control-v10';
 const ASSETS = [
   './',
   'index.html',
+  'tres-puentes.html',
   'manifest.json',
   'image.jpg',
   'icon-192.png',
